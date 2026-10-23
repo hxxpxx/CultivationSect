@@ -16,6 +16,10 @@ public class PawnDeskManager : MonoBehaviour
     public float energyLevel = 100f;
     public float maxEnergy = 100f;
 
+    [Header("物品仓库")]
+    public int counterCapacity = 24;              // 柜台货架容量
+    [HideInInspector] public Inventory counterInventory;   // 收当物品入库的柜台容器
+
     // ============ 运行时子系统 ============
     [HideInInspector] public AppraisalValidator validator;
     [HideInInspector] public PricingEngine pricer;
@@ -72,6 +76,9 @@ public class PawnDeskManager : MonoBehaviour
         //corruptionSystem = gameObject.AddComponent<AICorruptionSystem>();
         //secretSystem = gameObject.AddComponent<AISecretSystem>();
         redemptionScheduler = new RedemptionScheduler();
+
+        // 初始化柜台物品容器（收当入库、赎回出库）
+        counterInventory = InventoryManager.Instance.GetOrCreate("counter", "柜台", counterCapacity);
 
         //if (GetComponent<AIDetectionTool>() == null)
         //    gameObject.AddComponent<AIDetectionTool>();
@@ -279,6 +286,7 @@ public class PawnDeskManager : MonoBehaviour
 
         if (lastOffer <= 0) return "无法估价，请先扫描物品。";
         if (ledger.shopFunds < lastOffer) return "当铺资金不足，无法收当。";
+        if (counterInventory == null || !counterInventory.HasFreeSlot()) return "柜台已满，无法收当。";
 
         float oldFunds = ledger.shopFunds;
 
@@ -291,6 +299,9 @@ public class PawnDeskManager : MonoBehaviour
         var ticket = ledger.AcceptItem(selectedItem, lastOffer, dayScheduler.currentDayConfig);
         if (ticket != null)
         {
+            // 收当物品入库（柜台保管，供赎回/绝当）
+            counterInventory.Add(selectedItem);
+
             // ✅ GameEvents 转发
             GameEvents.SafeInvoke(GameEvents.OnFundsChanged, ledger.shopFunds, -lastOffer, "收当放款");
             GameEvents.SafeInvoke(GameEvents.OnTicketStatusChanged, ticket, TicketStatus.None, TicketStatus.Held);
@@ -368,6 +379,12 @@ public class PawnDeskManager : MonoBehaviour
     public void OnAIContainAndPawn()
     {
         if (selectedItem?.aiParasite == null) return;
+
+        if (counterInventory == null || !counterInventory.HasFreeSlot())
+        {
+            OnDecisionMade?.Invoke("柜台已满，无法收当。");
+            return;
+        }
 
         selectedItem.aiParasite.contained = true;
         selectedItem.aiParasite.corruptionLevel = 0f;

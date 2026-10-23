@@ -48,6 +48,7 @@ public class ItemFactory : MonoBehaviour
             itemID = def.itemID,
             itemName = def.itemName,
             category = def.itemCategory,
+            rarity = def.itemRarity,
             baseValue = def.baseValue,
             isAuthentic = true,
             isStolen = false,

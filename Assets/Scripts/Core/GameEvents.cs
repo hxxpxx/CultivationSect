@@ -114,6 +114,13 @@ public static class GameEvents
     /// </summary>
     public static Action<PawnTicket, TicketStatus, TicketStatus> OnTicketStatusChanged;
 
+    /// <summary>
+    /// 物品仓库内容变化
+    /// 参数: (inventoryID)
+    /// 触发: Inventory 任何增删换移分操作，由 InventoryManager 转发
+    /// </summary>
+    public static Action<string> OnInventoryChanged;
+
     // ============ 游戏流程事件 ============
 
     /// <summary>
@@ -240,6 +247,7 @@ public static class GameEvents
         OnReputationChanged = null;
         OnWantedChanged = null;
         OnTicketStatusChanged = null;
+        OnInventoryChanged = null;
 
         OnDayChanged = null;
         OnRuleActivated = null;
@@ -275,6 +283,7 @@ public static class GameEvents
         counts["OnReputationChanged"] = OnReputationChanged?.GetInvocationList()?.Length ?? 0;
         counts["OnWantedChanged"] = OnWantedChanged?.GetInvocationList()?.Length ?? 0;
         counts["OnTicketStatusChanged"] = OnTicketStatusChanged?.GetInvocationList()?.Length ?? 0;
+        counts["OnInventoryChanged"] = OnInventoryChanged?.GetInvocationList()?.Length ?? 0;
 
         counts["OnDayChanged"] = OnDayChanged?.GetInvocationList()?.Length ?? 0;
         counts["OnRuleActivated"] = OnRuleActivated?.GetInvocationList()?.Length ?? 0;

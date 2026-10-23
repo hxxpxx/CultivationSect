@@ -1,0 +1,12 @@
+itemID,name,category,baseValue,rarity,description,icon
+# 本文件是 ItemBatchCreator 的 CSV 输入模板（编辑期输入，烤成 .asset 后被 ItemDatabase 读取）
+# 列: itemID, name, category, baseValue, rarity, description, icon
+# category: Herb/Ore/Pet/Pill/Weapon/Talisman（或 灵草/灵矿/灵宠/丹药/武器/符箓）
+# rarity  : Common/Uncommon/Rare/Epic/Legendary/Mythic（或 白/绿/蓝/紫/金/红），留空=Common
+# icon    : Sprite 资产路径，可选，留空用默认
+# 说明: 以 # 开头的行会作为空行跳过；复制下面示例行改成你的物品即可
+herb_lingshan_01,龙涎草,Herb,1200,Rare,蕴含龙息的灵草，炼丹珍材,
+ore_hanjin_01,寒晶矿,Ore,800,Uncommon,极北寒地出产的灵矿，炼器冷淬上品,
+pill_qidan_01,凝气丹,Pill,500,Common,炼气期常用丹药，提升凝气速度,
+weapon_feijian_01,青霜飞剑,Weapon,3200,Epic,可御空飞行的飞剑，寒霜入骨,
+talisman_jinyuan_01,聚灵符,Talisman,650,Rare,可聚集周围灵气，辅助修炼,
