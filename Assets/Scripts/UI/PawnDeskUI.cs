@@ -40,17 +40,14 @@ public class PawnDeskUI : MonoBehaviour
     public GameObject scanGlitchEffect; // 扫描异常时的闪烁特效
 
     [Header("决策按钮")]
-    public Button pawnButton;
+    public Button buyButton;
+    public Button sellButton;
     public Button rejectButton;
-    public Button reportButton;
-    public Button blackMarketButton;
-    public Button negotiateButton;
 
     [Header("AI 对话面板")]
     public GameObject aiDialoguePanel;
     public TextMeshProUGUI aiNameText;
     public TextMeshProUGUI aiDialogueText;
-    public Button aiContainButton;
     public Button aiFreeButton;
     public Button aiIntegrateButton;
     public Button aiCloseButton;
@@ -110,13 +107,10 @@ public class PawnDeskUI : MonoBehaviour
     {
         scanButton?.onClick.AddListener(() => OnScanClicked());
         aiScanButton?.onClick.AddListener(() => OnAIScanClicked());
-        pawnButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Pawn));
+        buyButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Buy));
+        sellButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Sell));
         rejectButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Reject));
-        reportButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Report));
-        blackMarketButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.BlackMarket));
-        negotiateButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Negotiate));
 
-        aiContainButton?.onClick.AddListener(() => { manager.OnAIContainAndPawn(); CloseAIDialogue(); });
         aiFreeButton?.onClick.AddListener(() => { manager.OnAIFree(); CloseAIDialogue(); });
         aiIntegrateButton?.onClick.AddListener(() => { manager.OnAIIntegrate(); CloseAIDialogue(); });
         aiCloseButton?.onClick.AddListener(CloseAIDialogue);
@@ -135,7 +129,8 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnItemSelected += OnItemSelectedHandler;
         manager.OnScanCompleted += OnScanCompletedHandler;
         manager.OnDecisionMade += OnDecisionMadeHandler;
-        manager.OnItemPawned += OnItemPawnedHandler;
+        manager.OnItemBought += OnItemBoughtHandler;
+        manager.OnItemSold += OnItemSoldHandler;
         manager.OnDayEnded += OnDayEndedHandler;
         manager.OnAIDetected += OnAIDetectedHandler;
         manager.OnAIDialogueRequested += OnAIDialogueRequestedHandler;
@@ -164,7 +159,8 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnItemSelected -= OnItemSelectedHandler;
         manager.OnScanCompleted -= OnScanCompletedHandler;
         manager.OnDecisionMade -= OnDecisionMadeHandler;
-        manager.OnItemPawned -= OnItemPawnedHandler;
+        manager.OnItemBought -= OnItemBoughtHandler;
+        manager.OnItemSold -= OnItemSoldHandler;
         manager.OnDayEnded -= OnDayEndedHandler;
         manager.OnAIDetected -= OnAIDetectedHandler;
         manager.OnAIDialogueRequested -= OnAIDialogueRequestedHandler;
@@ -197,31 +193,8 @@ public class PawnDeskUI : MonoBehaviour
 
     void OnDecisionClicked(PawnDeskManager.DecisionType type)
     {
-        if (type == PawnDeskManager.DecisionType.Pawn && manager.selectedItem != null)
-        {
-            // 检查是否有未处理的AI
-            //if (manager.selectedItem.aiParasite != null &&
-            //    manager.selectedItem.aiParasite.discoveredByPlayer &&
-            //    !manager.selectedItem.aiParasite.contained)
-            //{
-            //    ShowConfirmDialog(
-            //        "AI意识未处理",
-            //        "该物品中存在已发现的AI寄生意识，确定要直接收当吗？",
-            //        () => { manager.ExecuteDecision(type); },
-            //        null
-            //    );
-            //    return;
-            //}
-        }
-
         string result = manager.ExecuteDecision(type);
         ShowToast(result, result.Contains("✓") ? "success" : "info", 3f);
-
-        //if (type == PawnDeskManager.DecisionType.Reject || type == PawnDeskManager.DecisionType.Pawn)
-        //{
-        //    // 处理后自动进入下一个客户
-        //    Invoke("ProcessNextClientDelay", 1.5f);
-        //}
     }
 
     void OnNextClientClicked()
@@ -231,38 +204,6 @@ public class PawnDeskUI : MonoBehaviour
     }
 
 
-
-    // PawnDeskUI.cs 中相关部分改造
-
-    // ❌ 删掉这些字段（不再需要）：
-    // public List<ItemDef> availableItems;  // 删
-    // public ItemButtonPrefab itemPrefab;   // 改为从 Database 动态取
-    void DisplayClientItems(ClientProfile client)
-    {
-        // 清理旧按钮
-        foreach (Transform child in itemsContainer)
-            Destroy(child.gameObject);
-
-        if (client == null || client.broughtItems == null) return;
-
-        // 从数据库查定义（如果需要显示额外信息）
-        // 实际物品实例已经在 client.items 里了
-        for (int i = 0; i < client.broughtItems.Count; i++)
-        {
-            var item = client.broughtItems[i];
-            var btn = Instantiate(itemButtonPrefab, itemsContainer);
-
-            // 从数据库拿定义获取图标/描述等
-            var def = ItemDatabase.Instance.GetByID(item.itemID);
-
-            var text = btn.GetComponentInChildren<Text>();
-            if (text != null)
-                text.text = item.itemName;
-
-            int index = i;
-            btn.GetComponent<Button>().onClick.AddListener(() => OnItemSelected(index));
-        }
-    }
 
     // ============ Manager 事件处理 ============
 
@@ -289,7 +230,6 @@ public class PawnDeskUI : MonoBehaviour
         selectedItemNameText.text = item.itemName;
         selectedItemDescText.text = item.description;
         inspectionPanel.SetActive(false);
-        //negotiateButton?.gameObject.SetActive(item.aiParasite != null && item.aiParasite.discoveredByPlayer);
     }
 
     void OnScanCompletedHandler(InspectionReport report, float offer)
@@ -312,11 +252,9 @@ public class PawnDeskUI : MonoBehaviour
         offerText.gameObject.SetActive(true);
 
         // 启用决策按钮
-        pawnButton?.gameObject.SetActive(true);
+        buyButton?.gameObject.SetActive(true);
+        sellButton?.gameObject.SetActive(true);
         rejectButton?.gameObject.SetActive(true);
-        reportButton?.gameObject.SetActive(report.HasIssue);
-        //blackMarketButton?.gameObject.SetActive(item != null && item.aiParasite != null && item.aiParasite.discoveredByPlayer);
-        //negotiateButton?.gameObject.SetActive(item != null && item.aiParasite != null && item.aiParasite.discoveredByPlayer);
     }
 
     void OnDecisionMadeHandler(string msg)
@@ -324,10 +262,16 @@ public class PawnDeskUI : MonoBehaviour
         Debug.Log($"[决策] {msg}");
     }
 
-    void OnItemPawnedHandler(PawnTicket ticket)
+    void OnItemBoughtHandler(ItemInstance item)
     {
         RefreshTopBar();
-        ShowToast($"当票 #{ticket.ticketId} 已生成", "success", 2.5f);
+        ShowToast($"已收购 {item.itemName}", "success", 2.5f);
+    }
+
+    void OnItemSoldHandler(ItemInstance item)
+    {
+        RefreshTopBar();
+        ShowToast($"已售出 {item.itemName}", "success", 2.5f);
     }
 
     void OnDayEndedHandler()
@@ -459,22 +403,20 @@ public class PawnDeskUI : MonoBehaviour
         selectedItemNameText.text = "未选择物品";
         selectedItemDescText.text = "";
         //inspectionPanel.SetActive(false);
-        //pawnButton?.gameObject.SetActive(false);
+        //buyButton?.gameObject.SetActive(false);
+        //sellButton?.gameObject.SetActive(false);
         //rejectButton?.gameObject.SetActive(false);
-        //reportButton?.gameObject.SetActive(false);
-        //blackMarketButton?.gameObject.SetActive(false);
-        //negotiateButton?.gameObject.SetActive(false);
     }
 
     void ShowDayReport()
     {
-        int activeCount = manager.GetActiveTickets().Count;
+        int stockCount = manager.GetCounterCount();
         dayReportText.text = $"=== 日结算 ===\n" +
             $"天数: 第 {manager.GetCurrentDay()} 天\n" +
             $"资金: {manager.GetShopFunds():F0}\n" +
             $"声望: {manager.GetReputation():F0}\n" +
             $"通缉值: {manager.GetWantedLevel():F0}\n" +
-            $"活跃当票: {activeCount}\n" +
+            $"货架物品: {stockCount}\n" +
             $"能量: 已恢复";
         dayReportPanel.SetActive(true);
     }

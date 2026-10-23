@@ -3,17 +3,30 @@ using UnityEngine;
 
 public class PricingEngine
 {
+    // 收购估价（低价买入）
     public float EstimateOffer(ItemInstance item, DayConfig day)
     {
-        if (item == null || item == null) return 0f;
+        if (item == null) return 0f;
 
         float market = item.baseValue;
-        //float cond = Mathf.Clamp01(item.condition);
         float rarityMul = GetRarityMultiplier(item.rarity);
         float risk = GetRiskDiscount(item, day);
 
         float baseOffer = market * rarityMul * day.baseDemandMultiplier * risk;
         return baseOffer * day.pawnPayoutRate;
+    }
+
+    // 售出定价（不打收购折价，商家加价约 30%）
+    public float EstimateSellPrice(ItemInstance item, DayConfig day)
+    {
+        if (item == null) return 0f;
+
+        float market = item.baseValue;
+        float rarityMul = GetRarityMultiplier(item.rarity);
+        float risk = GetRiskDiscount(item, day);
+
+        float basePrice = market * rarityMul * day.baseDemandMultiplier * risk;
+        return Mathf.Max(1f, basePrice * 1.3f);
     }
 
     float GetRarityMultiplier(ItemRarity r)
