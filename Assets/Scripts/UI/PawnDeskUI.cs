@@ -31,6 +31,14 @@ public class PawnDeskUI : MonoBehaviour
     public TextMeshProUGUI selectedItemNameText;
     public TextMeshProUGUI selectedItemDescText;
 
+    [Header("货架面板")]
+    public GameObject shelfPanel;
+    public Transform shelfItemsContainer;
+    public GameObject shelfItemButtonPrefab;   // 可为空，为空时复用 itemButtonPrefab
+    public Button shelfOpenButton;
+    public Button shelfCloseButton;
+    public TextMeshProUGUI shelfCountText;     // 可选，显示 货架占用/容量
+
     [Header("扫描/鉴定面板")]
     public GameObject inspectionPanel;
     public TextMeshProUGUI inspectionResultText;
@@ -72,6 +80,7 @@ public class PawnDeskUI : MonoBehaviour
     // ============ 内部引用 ============
     PawnDeskManager manager;
     List<GameObject> itemButtons = new List<GameObject>();
+    List<GameObject> shelfButtons = new List<GameObject>();
     Coroutine toastCoroutine;
     Coroutine aiMessageCoroutine;
 
@@ -89,6 +98,7 @@ public class PawnDeskUI : MonoBehaviour
         SubscribeEvents();
         RefreshTopBar();
         HideAllPanels();
+        RefreshShelfItems();   // 预刷新货架占用/列表
 
         dayReportPanel.SetActive(false);
     }
@@ -117,6 +127,9 @@ public class PawnDeskUI : MonoBehaviour
 
         nextDayButton?.onClick.AddListener(() => { dayReportPanel.SetActive(false); manager.AdvanceToNextDay(); });
         nextClientButton?.onClick.AddListener(() => OnNextClientClicked());
+
+        shelfOpenButton?.onClick.AddListener(OpenShelf);
+        shelfCloseButton?.onClick.AddListener(CloseShelf);
     }
 
     void SubscribeEvents()
@@ -147,6 +160,7 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnToastRequested += OnToastRequestedHandler;
         GameEvents.OnPlaySFX += OnPlaySFXHandler;
         GameEvents.OnScreenShake += OnScreenShakeHandler;
+        GameEvents.OnInventoryChanged += OnInventoryChangedHandler;
         //GameEvents.OnOpenAIDialogue += OnOpenAIDialogueHandler;
     }
 
@@ -176,6 +190,7 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnToastRequested -= OnToastRequestedHandler;
         GameEvents.OnPlaySFX -= OnPlaySFXHandler;
         GameEvents.OnScreenShake -= OnScreenShakeHandler;
+        GameEvents.OnInventoryChanged -= OnInventoryChangedHandler;
         //GameEvents.OnOpenAIDialogue -= OnOpenAIDialogueHandler;
     }
 
@@ -230,6 +245,11 @@ public class PawnDeskUI : MonoBehaviour
         selectedItemNameText.text = item.itemName;
         selectedItemDescText.text = item.description;
         inspectionPanel.SetActive(false);
+
+        // 选中物品后即可买卖/拒绝
+        buyButton?.gameObject.SetActive(true);
+        sellButton?.gameObject.SetActive(true);
+        rejectButton?.gameObject.SetActive(true);
     }
 
     void OnScanCompletedHandler(InspectionReport report, float offer)
@@ -362,6 +382,64 @@ public class PawnDeskUI : MonoBehaviour
     //        OpenAIDialogue(item.aiParasite);
     //}
 
+    // ============ 货架面板（卖流程：选择库存物品） ============
+
+    void OpenShelf()
+    {
+        RefreshShelfItems();
+        shelfPanel?.SetActive(true);
+    }
+
+    void CloseShelf()
+    {
+        shelfPanel?.SetActive(false);
+    }
+
+    void RefreshShelfItems()
+    {
+        foreach (var btn in shelfButtons)
+            if (btn != null) Destroy(btn);
+        shelfButtons.Clear();
+
+        var items = manager != null ? manager.GetCounterItems() : null;
+        int capacity = manager?.counterInventory != null ? manager.counterInventory.capacity : 0;
+
+        if (items != null)
+        {
+            var prefab = shelfItemButtonPrefab != null ? shelfItemButtonPrefab : itemButtonPrefab;
+            for (int i = 0; i < items.Count && prefab != null; i++)
+            {
+                int index = i;
+                var item = items[i];
+                var btnObj = Instantiate(prefab, shelfItemsContainer);
+                var btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
+                if (btnText != null) btnText.text = $"{item.itemName}（估价 {item.baseValue}）";
+                var btn = btnObj.GetComponent<Button>();
+                if (btn != null)
+                    btn.onClick.AddListener(() => OnShelfItemClicked(index));
+                shelfButtons.Add(btnObj);
+            }
+        }
+
+        if (shelfCountText != null)
+            shelfCountText.text = $"货架: {items?.Count ?? 0}/{capacity}";
+    }
+
+    void OnShelfItemClicked(int index)
+    {
+        manager.SelectStockItem(index);
+        ShowToast("已选中待售物品，点击「卖」成交", "info", 1.5f);
+        CloseShelf();
+    }
+
+    void OnInventoryChangedHandler(string inventoryID)
+    {
+        // 货架内容变化时刷新列表（收购入库/售出出库都会触发）
+        if (manager != null && manager.counterInventory != null && inventoryID == manager.counterInventory.inventoryID)
+            RefreshShelfItems();
+        RefreshTopBar();
+    }
+
     // ============ UI 更新方法 ============
 
     void RefreshTopBar()
@@ -427,6 +505,7 @@ public class PawnDeskUI : MonoBehaviour
         dayReportPanel?.SetActive(false);
         confirmDialogPanel?.SetActive(false);
         toastPanel?.SetActive(false);
+        shelfPanel?.SetActive(false);
 //        aiMessagePanel?.SetActive(false);
     }
 

@@ -3,15 +3,38 @@ using UnityEngine;
 
 public class ItemFactory : MonoBehaviour
 {
-    public static ItemFactory Instance { get; private set; }
+    private static ItemFactory _instance;
+
+    /// <summary>懒加载单例：场景中不存在时自动创建，避免空引用</summary>
+    public static ItemFactory Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindObjectOfType<ItemFactory>();
+                if (_instance == null)
+                {
+                    var go = new GameObject("ItemFactory");
+                    _instance = go.AddComponent<ItemFactory>(); // 立即触发 Awake
+                    Object.DontDestroyOnLoad(go);
+                }
+            }
+            return _instance;
+        }
+    }
 
     [Header("数据库引用")]
     public ItemDatabase itemDatabase;
 
     void Awake()
     {
-        if (Instance != null) { Destroy(gameObject); return; }
-        Instance = this;
+        if (_instance != null && _instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        _instance = this;
 
         // 自动初始化数据库
         if (itemDatabase == null)

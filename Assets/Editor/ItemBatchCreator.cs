@@ -224,7 +224,7 @@ public class ItemBatchCreator : EditorWindow
         d.itemName = name;
         d.itemCategory = category;
         d.baseValue = baseValue;
-        d.rarity = rarity;
+        d.itemRarity = rarity;
         d.description = Get("description");
 
         string iconPath = Get("icon");

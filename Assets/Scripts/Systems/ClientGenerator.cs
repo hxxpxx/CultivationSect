@@ -3,23 +3,12 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Text;
 
-public class ClientGenerator : MonoBehaviour
+public class ClientGenerator
 {
-    public static ClientGenerator Instance { get; private set; }
-
-    [Header("生成参数")]
+    // 纯逻辑随机生成器（非 MonoBehaviour，可 new），无需场景组件
     public int minItemsPerClient = 1;
     public int maxItemsPerClient = 3;
     public float rareItemChance = 0.15f;
-
-    //[Header("派系权重（随天数解锁）")]
-    //public FactionWeight[] factionWeights;
-
-    void Awake()
-    {
-        if (Instance != null) { Destroy(gameObject); return; }
-        Instance = this;
-    }
 
     public ClientProfile GenerateClient(int day)
     {
@@ -271,7 +260,7 @@ public class ClientGenerator : MonoBehaviour
     };
     static readonly string[] DemonicDialogue =
     {
-        "这物件来路……你莫要多问，价钱合适便成。",
+        "这物件来路不明，你莫要多问，价钱合适便成。",
         "莫声张。当个好价钱，本座自会重赏你。",
         "哼，识相的收了它；不识相的——后果你清楚。",
         "这宝贝沾了些血气，掌柜的可敢收？价高者得。"
