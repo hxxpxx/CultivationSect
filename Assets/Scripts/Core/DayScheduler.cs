@@ -19,10 +19,4 @@ public class DayScheduler
         }
         Debug.Log($"第 {currentDayConfig.dayIndex} 天开始，共 {clientCount} 位客户。");
     }
-
-    public void EndDay(PawnLedger ledger, RedemptionScheduler scheduler)
-    {
-        scheduler.TickDay(ledger, currentDayConfig);
-        Debug.Log("日结完成。当前资金: " + ledger.shopFunds);
-    }
 }

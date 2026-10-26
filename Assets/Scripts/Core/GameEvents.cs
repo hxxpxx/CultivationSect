@@ -1,4 +1,4 @@
-﻿// ===== GameEvents.cs =====
+// ===== GameEvents.cs =====
 // 放在 Assets/Scripts/Core/ 或 Assets/Scripts/ 根目录下
 // 无需挂载到任何物体，纯静态类
 
@@ -45,42 +45,42 @@ public static class GameEvents
     /// <summary>
     /// AI腐蚀/篡改事件通知
     /// 参数: (物品实例, 篡改描述)
-    /// 触发: AICorruptionSystem 每日结算
+    /// 触发: 腐蚀系统每日结算
     /// </summary>
     public static Action<ItemInstance, string> OnAICorruption;
 
     /// <summary>
     /// 扫描仪被干扰/卡死
     /// 参数: 无
-    /// 触发: AICorruptionSystem 腐蚀效果
+    /// 触发: 腐蚀/篡改效果
     /// </summary>
     public static Action OnScannerJammed;
 
     /// <summary>
     /// 当票被篡改
     /// 参数: (物品实例)
-    /// 触发: AICorruptionSystem 腐蚀效果
+    /// 触发: 腐蚀/篡改效果
     /// </summary>
     public static Action<ItemInstance> OnTicketTampered;
 
     /// <summary>
     /// 虚假客户来赎回（AI伪造）
     /// 参数: (物品实例)
-    /// 触发: AICorruptionSystem 腐蚀效果
+    /// 触发: 腐蚀/篡改效果
     /// </summary>
     public static Action<ItemInstance> OnFakeRedemption;
 
     /// <summary>
     /// AI在玩家脑海中低语
     /// 参数: (AI寄生数据)
-    /// 触发: AICorruptionSystem 意识渗透
+    /// 触发: 意识渗透效果
     /// </summary>
     public static Action<AIParasiteData> OnAIVoiceWhisper;
 
     /// <summary>
     /// 记忆闪回（AI分享前任宿主记忆）
     /// 参数: 无
-    /// 触发: AISecretSystem 秘密交易
+    /// 触发: 秘密交易
     /// </summary>
     public static Action OnMemoryFlashback;
 
@@ -239,7 +239,6 @@ public static class GameEvents
         OnFundsChanged = null;
         OnReputationChanged = null;
         OnWantedChanged = null;
-        OnTicketStatusChanged = null;
         OnInventoryChanged = null;
 
         OnDayChanged = null;
@@ -275,7 +274,6 @@ public static class GameEvents
         counts["OnFundsChanged"] = OnFundsChanged?.GetInvocationList()?.Length ?? 0;
         counts["OnReputationChanged"] = OnReputationChanged?.GetInvocationList()?.Length ?? 0;
         counts["OnWantedChanged"] = OnWantedChanged?.GetInvocationList()?.Length ?? 0;
-        counts["OnTicketStatusChanged"] = OnTicketStatusChanged?.GetInvocationList()?.Length ?? 0;
         counts["OnInventoryChanged"] = OnInventoryChanged?.GetInvocationList()?.Length ?? 0;
 
         counts["OnDayChanged"] = OnDayChanged?.GetInvocationList()?.Length ?? 0;

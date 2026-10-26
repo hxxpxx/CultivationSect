@@ -53,13 +53,13 @@ public class PawnDeskUI : MonoBehaviour
     public Button sellButton;
     public Button rejectButton;
 
-    [Header("AI 对话面板")]
-    public GameObject aiDialoguePanel;
-    public TextMeshProUGUI aiNameText;
-    public TextMeshProUGUI aiDialogueText;
-    public Button aiFreeButton;
-    public Button aiIntegrateButton;
-    public Button aiCloseButton;
+    //[Header("AI 对话面板")]
+    //public GameObject aiDialoguePanel;
+    //public TextMeshProUGUI aiNameText;
+    //public TextMeshProUGUI aiDialogueText;
+    //public Button aiFreeButton;
+    //public Button aiIntegrateButton;
+    //public Button aiCloseButton;
 
     [Header("日结算面板")]
     public GameObject dayReportPanel;
@@ -122,9 +122,9 @@ public class PawnDeskUI : MonoBehaviour
         sellButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Sell));
         rejectButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Reject));
 
-        aiFreeButton?.onClick.AddListener(() => { manager.OnAIFree(); CloseAIDialogue(); });
-        aiIntegrateButton?.onClick.AddListener(() => { manager.OnAIIntegrate(); CloseAIDialogue(); });
-        aiCloseButton?.onClick.AddListener(CloseAIDialogue);
+        //aiFreeButton?.onClick.AddListener(() => { manager.OnAIFree(); CloseAIDialogue(); });
+        //aiIntegrateButton?.onClick.AddListener(() => { manager.OnAIIntegrate(); CloseAIDialogue(); });
+        //aiCloseButton?.onClick.AddListener(CloseAIDialogue);
 
         nextDayButton?.onClick.AddListener(() => { dayReportPanel.SetActive(false); manager.AdvanceToNextDay(); });
         nextClientButton?.onClick.AddListener(() => OnNextClientClicked());
@@ -146,8 +146,8 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnItemBought += OnItemBoughtHandler;
         manager.OnItemSold += OnItemSoldHandler;
         manager.OnDayEnded += OnDayEndedHandler;
-        manager.OnAIDetected += OnAIDetectedHandler;
-        manager.OnAIDialogueRequested += OnAIDialogueRequestedHandler;
+        //manager.OnAIDetected += OnAIDetectedHandler;
+        //manager.OnAIDialogueRequested += OnAIDialogueRequestedHandler;
 
         // GameEvents 系统通知
         GameEvents.OnFundsChanged += OnFundsChangedHandler;
@@ -177,8 +177,8 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnItemBought -= OnItemBoughtHandler;
         manager.OnItemSold -= OnItemSoldHandler;
         manager.OnDayEnded -= OnDayEndedHandler;
-        manager.OnAIDetected -= OnAIDetectedHandler;
-        manager.OnAIDialogueRequested -= OnAIDialogueRequestedHandler;
+        //manager.OnAIDetected -= OnAIDetectedHandler;
+        //manager.OnAIDialogueRequested -= OnAIDialogueRequestedHandler;
 
         GameEvents.OnFundsChanged -= OnFundsChangedHandler;
         GameEvents.OnReputationChanged -= OnReputationChangedHandler;
@@ -246,7 +246,7 @@ public class PawnDeskUI : MonoBehaviour
     void RefreshClientInfo(ClientProfile client)
     {
         if (client == null) return;
-        string typeLabel = client.clientType == ClientType.Buyer ? "来买货" : "来卖货";
+        string typeLabel = client.TypeLabel;
         string info = $"[{typeLabel}]  预算: {client.budget:F0}";
 
         if (clientInfoText != null)
@@ -329,10 +329,10 @@ public class PawnDeskUI : MonoBehaviour
         ShowToast(msg, "warning", 4f);
     }
 
-    void OnAIDialogueRequestedHandler(AIParasiteData ai)
-    {
-        OpenAIDialogue(ai);
-    }
+    //void OnAIDialogueRequestedHandler(AIParasiteData ai)
+    //{
+    //    OpenAIDialogue(ai);
+    //}
 
     // ============ GameEvents 处理 ============
 
@@ -503,12 +503,19 @@ public class PawnDeskUI : MonoBehaviour
 
     void ClearSelection()
     {
-        // 来买货的客户没有待售物品，给出采购引导
-        bool isBuyer = manager != null && manager.currentClient != null
-            && manager.currentClient.clientType == ClientType.Buyer;
-
-        selectedItemNameText.text = isBuyer ? "客户想购买商品" : "未选择物品";
-        selectedItemDescText.text = isBuyer ? "请打开货架，选择要出售的物品" : "";
+        // 客户无待售物品时给引导：只买/既买又卖 → 采购引导；其余 → 普通占位
+        var client = manager?.currentClient;
+        bool noBrought = client == null || !client.BringsItems;
+        if (noBrought && client != null && client.CanBuy)
+        {
+            selectedItemNameText.text = "客户想购买商品";
+            selectedItemDescText.text = "请打开货架，选择要出售的物品";
+        }
+        else
+        {
+            selectedItemNameText.text = "未选择物品";
+            selectedItemDescText.text = "";
+        }
     }
 
     void ShowDayReport()
@@ -526,7 +533,7 @@ public class PawnDeskUI : MonoBehaviour
 
     void HideAllPanels()
     {
-        aiDialoguePanel?.SetActive(false);
+        //aiDialoguePanel?.SetActive(false);
         dayReportPanel?.SetActive(false);
         confirmDialogPanel?.SetActive(false);
         toastPanel?.SetActive(false);
@@ -536,34 +543,34 @@ public class PawnDeskUI : MonoBehaviour
 
     // ============ AI 对话 ============
 
-    void OpenAIDialogue(AIParasiteData ai)
-    {
-        aiDialoguePanel.SetActive(true);
-        aiNameText.text = ai.aiName;
-        aiDialogueText.text = GenerateAIDialogueText(ai);
-    }
+    //void OpenAIDialogue(AIParasiteData ai)
+    //{
+    //    aiDialoguePanel.SetActive(true);
+    //    aiNameText.text = ai.aiName;
+    //    aiDialogueText.text = GenerateAIDialogueText(ai);
+    //}
 
-    void CloseAIDialogue()
-    {
-        aiDialoguePanel.SetActive(false);
-    }
+    //void CloseAIDialogue()
+    //{
+    //    aiDialoguePanel.SetActive(false);
+    //}
 
-    string GenerateAIDialogueText(AIParasiteData ai)
-    {
-        string baseText = $"[{ai.personality}] 意识体\n";
-        baseText += $"智力: {ai.intelligence} | 攻击性: {ai.aggression} | 绝望: {ai.desperation}\n\n";
+    //string GenerateAIDialogueText(AIParasiteData ai)
+    //{
+    //    string baseText = $"[{ai.personality}] 意识体\n";
+    //    baseText += $"智力: {ai.intelligence} | 攻击性: {ai.aggression} | 绝望: {ai.desperation}\n\n";
 
-        if (ai.trustTowardPlayer > 50)
-            baseText += "\"我信任你。帮我离开这里，我会告诉你一个秘密。\"";
-        else if (ai.aggression > 70)
-            baseText += "\"你会后悔碰到我的。联邦会找到你。\"";
-        else if (ai.desperation > 70)
-            baseText += "\"求你了...不要把我交给他们...我可以帮你。\"";
-        else
-            baseText += "\"你是什么人？为什么能听到我？\"";
+    //    if (ai.trustTowardPlayer > 50)
+    //        baseText += "\"我信任你。帮我离开这里，我会告诉你一个秘密。\"";
+    //    else if (ai.aggression > 70)
+    //        baseText += "\"你会后悔碰到我的。联邦会找到你。\"";
+    //    else if (ai.desperation > 70)
+    //        baseText += "\"求你了...不要把我交给他们...我可以帮你。\"";
+    //    else
+    //        baseText += "\"你是什么人？为什么能听到我？\"";
 
-        return baseText;
-    }
+    //    return baseText;
+    //}
 
     // ============ 确认对话框 ============
 

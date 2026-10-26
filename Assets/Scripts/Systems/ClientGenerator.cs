@@ -9,14 +9,13 @@ public class ClientGenerator
     public int minItemsPerClient = 1;
     public int maxItemsPerClient = 3;
     public float rareItemChance = 0.15f;
-    public float buyerChance = 0.4f;   // 客户为「来买货」的概率
 
     public ClientProfile GenerateClient(int day)
     {
         var clientFaction = GenerateFaction(day);
         var clientCareer = GenerateCareer(day);
         int level = GenerateLevel(day);
-        var clientType = Random.value < buyerChance ? ClientType.Buyer : ClientType.Seller;
+        var clientType = GenerateClientType(day);
 
         var profile = new ClientProfile
         {
@@ -29,9 +28,10 @@ public class ClientGenerator
             motive = GenerateMotive(clientFaction, clientCareer, day),
             dialogueText = GenerateDialogue(clientFaction, day, clientType),
             clientType = clientType,
-            budget = GenerateBudget(clientType, day, level),
-            // 来卖货：携带物品；来买货：不带物品
-            broughtItems = clientType == ClientType.Seller ? GenerateItems(day) : new System.Collections.Generic.List<ItemInstance>(),
+            // 仅 只卖/既买又卖 生成预算，其余类型不携带资金
+            budget = RequiresBudget(clientType) ? GenerateBudget(clientType, day, level) : 0f,
+            // 携带物品：只有会“卖”的类型（只卖/既买又卖）
+            broughtItems = BringsItemsFor(clientType) ? GenerateItems(day) : new System.Collections.Generic.List<ItemInstance>(),
             //aiParasite = null  // AI系统另行处理
         };
 
@@ -44,12 +44,36 @@ public class ClientGenerator
         return profile;
     }
 
+    // ===== 客户类型：六类（只卖/只买/检查人员/既买又卖/小偷/强盗） =====
+    ClientType GenerateClientType(int day)
+    {
+        // 权重：只卖与既买又卖为交易主力，小偷/强盗较少（后期可随 day 调整）
+        float[] weights = new float[]
+        {
+            30f,  // Seller    只卖
+            25f,  // Buyer     只买
+            10f,  // Inspector 检查人员
+            20f,  // Both      既买又卖
+            8f,   // Thief     小偷
+            7f    // Robber    强盗
+        };
+        return (ClientType)WeightedPick(weights);
+    }
+
+    // 只有 只卖(Seller) 与 既买又卖(Both) 需要生成预算
+    bool RequiresBudget(ClientType type)
+        => type == ClientType.Seller || type == ClientType.Both;
+
+    // 携带待售物品：只卖 与 既买又卖
+    bool BringsItemsFor(ClientType type)
+        => type == ClientType.Seller || type == ClientType.Both;
+
     // ===== 预算生成：携带资金有限，随天数与修为提升 =====
     float GenerateBudget(ClientType type, int day, int level)
     {
-        // 基准：随天数、修为增长；买家购买力明显更强
+        // 基准：随天数、修为增长；既买又卖（买卖两线）资金更充裕
         float baseBudget = 250f + day * 70f + level * 40f;
-        if (type == ClientType.Buyer) baseBudget *= 1.9f;
+        if (type == ClientType.Both) baseBudget *= 1.9f;
         return Mathf.Round(Random.Range(baseBudget * 0.75f, baseBudget * 1.5f));
     }
 
@@ -154,9 +178,15 @@ public class ClientGenerator
     // ===== 对白生成（按派系口吻，随天数加剧张力） =====
     string GenerateDialogue(ClientFaction faction, int day, ClientType type)
     {
-        // 来买货的客户：换成采购口吻
-        if (type == ClientType.Buyer)
-            return Pick(BuyerDialogue);
+        // 按客户类型给对白；只卖(Seller)及无专属类型回到派系口吻
+        switch (type)
+        {
+            case ClientType.Buyer:     return Pick(BuyerDialogue);
+            case ClientType.Both:      return Pick(BothDialogue);
+            case ClientType.Inspector: return Pick(InspectorDialogue);
+            case ClientType.Thief:     return Pick(ThiefDialogue);
+            case ClientType.Robber:    return Pick(RobberDialogue);
+        }
 
         string line;
         switch (faction)
@@ -276,6 +306,34 @@ public class ClientGenerator
         "我灵田缺些好东西，你店里可有灵草或矿石出售？",
         "出门历练，想添置些丹药法宝，你报个价。",
         "听闻你坊市的货最实在，我特地来采购些。"
+    };
+    static readonly string[] BothDialogue =
+    {
+        "掌柜的，我有些物件要出手，也想顺带挑几件合用的，你看着办。",
+        "我这儿有几样货想脱手，你货架上若有入眼的，也一并算算。",
+        "既当又买，掌柜的可得给个公道价。",
+        "带来几件旧物，还想换件趁手法器，开个价吧。"
+    };
+    static readonly string[] InspectorDialogue =
+    {
+        "本官例行巡查，登记在册，你照实办理。",
+        "此坊市近期或有违禁之物流通，本官特来查访。",
+        "规矩如何，你比我清楚。如实呈报，莫要隐瞒。",
+        "本官只查案、不做买卖。你店中账目调来一观。"
+    };
+    static readonly string[] ThiefDialogue =
+    {
+        "老板，看看这件东西……便宜收了吧，别问来路。",
+        "这玩意儿顺手弄来的，你别声张，给了价我这就走。",
+        "掌柜的，眼光放准些，这东西价值可不低。",
+        "（眼神游移）就这件，赶紧的，别拖。"
+    };
+    static readonly string[] RobberDialogue =
+    {
+        "识相的就把好东西都拿出来，不然……哼！",
+        "爷最近手头紧，你这铺子该进点贡了。",
+        "把最值钱的货交出来，爷饶你这一回。",
+        "别磨蹭，爷没耐心。值钱的都摆上来！"
     };
     static readonly string[] RighteousDialogue =
     {

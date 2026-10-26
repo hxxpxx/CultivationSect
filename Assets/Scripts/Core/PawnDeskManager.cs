@@ -1,4 +1,6 @@
-﻿// ===== PawnDeskManager.cs =====
+// ===== PawnDeskManager.cs =====
+// 修仙商人经营：买（收购客户物品）/ 卖（售出货架物品）/ 拒绝
+// 已移除当铺遗留：PawnLedger / PawnTicket / RedemptionScheduler / 收当/赎当/绝当/黑市/报警/谈判
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,21 +17,24 @@ public class PawnDeskManager : MonoBehaviour
     public float startingFunds = 5000f;
     public float energyLevel = 100f;
     public float maxEnergy = 100f;
+    public int counterCapacity = 24;          // 柜台货架格子数
 
     // ============ 运行时子系统 ============
     [HideInInspector] public AppraisalValidator validator;
     [HideInInspector] public PricingEngine pricer;
     [HideInInspector] public DayScheduler dayScheduler;
     [HideInInspector] public GameStateRuntime gameState;
-    [HideInInspector] public AIDecisionSystem aiDecisionSystem;
-//    [HideInInspector] public AICorruptionSystem corruptionSystem;
-    [HideInInspector] public AISecretSystem secretSystem;
+
+    // ============ 资金与货架（取代原 PawnLedger） ============
+    [HideInInspector] public float shopFunds;               // 商栈资金
+    [HideInInspector] public Inventory counterInventory;    // 柜台货架（收购入库/售出出库）
 
     // ============ 当前状态 ============
     [HideInInspector] public ClientProfile currentClient;
-    [HideInInspector] public ItemInstance selectedItem;
+    [HideInInspector] public ItemInstance selectedItem;       // 客户携带、待收购的物品
+    [HideInInspector] public ItemInstance selectedStockItem;  // 货架上待售的物品
     [HideInInspector] public InspectionReport lastReport;
-    [HideInInspector] public float lastOffer;
+    [HideInInspector] public float lastOffer;                 // 收购估价
     [HideInInspector] public bool isProcessingDay;
 
     // ============ 实例事件（UI直接回调用） ============
@@ -38,6 +43,8 @@ public class PawnDeskManager : MonoBehaviour
     public System.Action<ItemInstance> OnItemSelected;
     public System.Action<InspectionReport, float> OnScanCompleted;
     public System.Action<string> OnDecisionMade;
+    public System.Action<ItemInstance> OnItemBought;   // 成功收购
+    public System.Action<ItemInstance> OnItemSold;     // 成功售出
     public System.Action OnDayEnded;
     public System.Action<string> OnAIDetected;
     public System.Action<AIParasiteData> OnAIDialogueRequested;
@@ -48,10 +55,8 @@ public class PawnDeskManager : MonoBehaviour
         InitializeSystems();
     }
 
-
     void Start()
     {
-
         StartNewDay();
     }
 
@@ -59,24 +64,16 @@ public class PawnDeskManager : MonoBehaviour
     {
         validator = new AppraisalValidator();
         pricer = new PricingEngine();
-        ledger = new PawnLedger();
-        ledger.shopFunds = startingFunds;
+        shopFunds = startingFunds;
 
         dayScheduler = new DayScheduler();
         gameState = new GameStateRuntime();
 
-        //aiDecisionSystem = gameObject.AddComponent<AIDecisionSystem>();
-        //corruptionSystem = gameObject.AddComponent<AICorruptionSystem>();
-        //secretSystem = gameObject.AddComponent<AISecretSystem>();
-        redemptionScheduler = new RedemptionScheduler();
 
-        //if (GetComponent<AIDetectionTool>() == null)
-        //    gameObject.AddComponent<AIDetectionTool>();
+        // 初始化柜台货架容器（收购入库、售出出库）
+        counterInventory = InventoryManager.Instance.GetOrCreate("counter", "柜台货架", counterCapacity);
 
-        //if (FindObjectOfType<AIBehaviorEvent>() == null)
-        //    gameObject.AddComponent<AIBehaviorEvent>();
-
-        Debug.Log("深空当铺系统初始化完成。");
+        Debug.Log("修仙商栈系统初始化完成。");
     }
 
     // ============ 日循环 ============
@@ -121,6 +118,7 @@ public class PawnDeskManager : MonoBehaviour
         currentClient = dayScheduler.todayClients[0];
         dayScheduler.todayClients.RemoveAt(0);
         selectedItem = null;
+        selectedStockItem = null;
         lastReport = null;
         lastOffer = 0;
 
@@ -132,23 +130,15 @@ public class PawnDeskManager : MonoBehaviour
     public void EndDay()
     {
         isProcessingDay = false;
-
-        redemptionScheduler.TickDay(ledger, dayScheduler.currentDayConfig);
-        //corruptionSystem.DailyCorruptionTick(ledger, dayScheduler);
         energyLevel = maxEnergy;
 
-        // ✅ GameEvents 转发
         GameEvents.SafeInvoke(GameEvents.OnDayChanged, gameState.currentDay);
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, ledger.shopFunds, 0f, "日结算");
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, 0f, "日结算");
 
         OnDayEnded?.Invoke();
 
-        // 自动存档
-        //var saveMgr = FindObjectOfType<SaveManager>();
-        //if (saveMgr != null) saveMgr.AutoSave();
-
         Debug.Log($"=== 第 {gameState.currentDay} 天结束 ===");
-        GameEvents.SafeInvoke(GameEvents.OnToastRequested, $"第 {gameState.currentDay} 天结束，资金: {ledger.shopFunds:F0}", "info", 3f);
+        GameEvents.SafeInvoke(GameEvents.OnToastRequested, $"第 {gameState.currentDay} 天结束，资金: {shopFunds:F0}", "info", 3f);
     }
 
     public void AdvanceToNextDay()
@@ -159,6 +149,7 @@ public class PawnDeskManager : MonoBehaviour
 
     // ============ 物品操作 ============
 
+    /// <summary>选中客户携带的物品（用于收购）</summary>
     public void SelectItem(int itemIndex)
     {
         if (currentClient == null || itemIndex < 0 || itemIndex >= currentClient.broughtItems.Count)
@@ -168,11 +159,31 @@ public class PawnDeskManager : MonoBehaviour
         }
 
         selectedItem = currentClient.broughtItems[itemIndex];
+        selectedStockItem = null;
         lastReport = null;
         lastOffer = 0;
 
         Debug.Log($"选中物品: {selectedItem.itemName}");
         OnItemSelected?.Invoke(selectedItem);
+    }
+
+    /// <summary>选中货架上的物品（用于售出）</summary>
+    public void SelectStockItem(int index)
+    {
+        var items = GetCounterItems();
+        if (index < 0 || index >= items.Count)
+        {
+            Debug.LogWarning("无效货架索引");
+            return;
+        }
+
+        selectedStockItem = items[index];
+        selectedItem = null;
+        lastReport = null;
+        lastOffer = 0;
+
+        Debug.Log($"选中待售物品: {selectedStockItem.itemName}");
+        OnItemSelected?.Invoke(selectedStockItem);
     }
 
     public InspectionReport ScanSelectedItem()
@@ -244,140 +255,91 @@ public class PawnDeskManager : MonoBehaviour
         return result;
     }
 
-    // ============ 决策 ============
+    // ============ 决策（买 / 卖 / 拒绝） ============
 
-    public enum DecisionType { Pawn, Reject, Report, BlackMarket, Negotiate }
+    public enum DecisionType { Buy, Sell, Reject }
 
     public string ExecuteDecision(DecisionType decision)
     {
-        if (selectedItem == null) return "未选中物品";
-
-        string resultMessage = "";
-
+        string resultMessage;
         switch (decision)
         {
-            case DecisionType.Pawn: resultMessage = ExecutePawn(); break;
-            case DecisionType.Reject: resultMessage = ExecuteReject(); break;
-            case DecisionType.Report: resultMessage = ExecuteReport(); break;
-            case DecisionType.BlackMarket: resultMessage = ExecuteBlackMarket(); break;
-            case DecisionType.Negotiate: resultMessage = ExecuteNegotiate(); break;
+            case DecisionType.Buy:  resultMessage = ExecuteBuy();   break;
+            case DecisionType.Sell: resultMessage = ExecuteSell();  break;
+            default:                resultMessage = ExecuteReject(); break;
         }
 
         OnDecisionMade?.Invoke(resultMessage);
-        selectedItem = null;
-        lastReport = null;
         return resultMessage;
     }
 
-    string ExecutePawn()
+    /// <summary>收购客户物品：付款并放入柜台货架</summary>
+    string ExecuteBuy()
     {
-        if (selectedItem.aiParasite != null && selectedItem.aiParasite.discoveredByPlayer)
-            return "该物品存在AI寄生意识，请先决定如何处理AI。";
-
+        if (selectedItem == null) return "未选中物品，无法收购。";
+        if (selectedItem.owner != ItemInstance.ItemOwnership.Customer) return "该物品不属于客户，无法收购。";
         if (lastOffer <= 0) return "无法估价，请先扫描物品。";
-        if (ledger.shopFunds < lastOffer) return "当铺资金不足，无法收当。";
+        if (shopFunds < lastOffer) return "资金不足，无法收购。";
+        if (counterInventory == null || counterInventory.IsFull) return "货架已满，无法收购。";
 
-        float oldFunds = ledger.shopFunds;
+        float cost = lastOffer;
+        shopFunds -= cost;
+        selectedItem.owner = ItemInstance.ItemOwnership.Merchant;
 
-        if (lastReport != null && lastReport.HasIssue)
+        if (!counterInventory.Add(selectedItem))
         {
-            if (selectedItem.aiParasite != null && selectedItem.aiParasite.isPresent)
-                selectedItem.aiParasite.corruptionLevel += 0.15f;
+            shopFunds += cost; // 入库失败回滚
+            return "货架已满，无法收购。";
         }
+        currentClient?.broughtItems.Remove(selectedItem);
 
-        var ticket = ledger.AcceptItem(selectedItem, lastOffer, dayScheduler.currentDayConfig);
-        if (ticket != null)
-        {
-            // ✅ GameEvents 转发
-            GameEvents.SafeInvoke(GameEvents.OnFundsChanged, ledger.shopFunds, -lastOffer, "收当放款");
-            GameEvents.SafeInvoke(GameEvents.OnTicketStatusChanged, ticket, TicketStatus.None, TicketStatus.Held);
-            GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "pawn_success", 0.8f);
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, -cost, "收购");
+        GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "buy_success", 0.8f);
 
-            OnItemPawned?.Invoke(ticket);
-            return $"✓ 收当成功！放款 {lastOffer:F0} 信用点。当票ID: {ticket.ticketId}";
-        }
-        return "✗ 收当失败。";
+        var bought = selectedItem;
+        selectedItem = null;
+        lastReport = null;
+        lastOffer = 0;
+
+        OnItemBought?.Invoke(bought);
+        return $"收购成功！支出 {cost:F0}，已收入货架。";
     }
 
+    /// <summary>售出货架物品：从货架移除并收款</summary>
+    string ExecuteSell()
+    {
+        if (selectedStockItem == null) return "未选中待售物品。";
+        if (currentClient == null) return "没有客户在店。";
+        if (counterInventory == null || !counterInventory.Contains(selectedStockItem)) return "该物品不在货架上。";
+
+        float price = pricer.EstimateSellPrice(selectedStockItem, dayScheduler.currentDayConfig);
+        string itemName = selectedStockItem.itemName;
+
+        if (!counterInventory.Remove(selectedStockItem))
+            return "售出失败。";
+
+        shopFunds += price;
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, price, "售出");
+        GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "sell_success", 0.8f);
+
+        var sold = selectedStockItem;
+        selectedStockItem = null;
+
+        OnItemSold?.Invoke(sold);
+        return $"售出 {itemName}！收入 {price:F0}。";
+    }
+
+    /// <summary>拒绝交易：清空当前选中</summary>
     string ExecuteReject()
     {
-        GameEvents.SafeInvoke(GameEvents.OnToastRequested, "已拒收", "info", 1.5f);
-        return "✗ 已拒收该物品。";
-    }
-
-    string ExecuteReport()
-    {
-        if (selectedItem.aiParasite != null && selectedItem.aiParasite.discoveredByPlayer)
-        {
-            float bounty = selectedItem.aiParasite.intelligence * 100f;
-            ledger.shopFunds += bounty;
-            gameState.reputation += 10;
-            gameState.wantedLevel += 5;
-
-            // ✅ GameEvents 转发
-            GameEvents.SafeInvoke(GameEvents.OnFundsChanged, ledger.shopFunds, bounty, "AI赏金");
-            GameEvents.SafeInvoke(GameEvents.OnReputationChanged, gameState.reputation, 10f);
-            GameEvents.SafeInvoke(GameEvents.OnWantedChanged, gameState.wantedLevel, 5f);
-            GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "alarm_report", 0.9f);
-
-            return $"✓ 已报警。AI '{selectedItem.aiParasite.aiName}' 被联邦收押。获得赏金 {bounty:F0}。";
-        }
-        else if (lastReport != null && lastReport.HasIssue)
-        {
-            gameState.reputation += 5;
-            GameEvents.SafeInvoke(GameEvents.OnReputationChanged, gameState.reputation, 5f);
-            return "✓ 异常已上报当局。";
-        }
-        return "没有需要上报的内容。";
-    }
-
-    string ExecuteBlackMarket()
-    {
-        if (selectedItem.aiParasite == null || !selectedItem.aiParasite.discoveredByPlayer)
-            return "该物品无特殊价值，黑市不感兴趣。";
-
-        float bmPrice = pricer.EstimateOffer(selectedItem, dayScheduler.currentDayConfig) * 2.5f;
-        ledger.shopFunds += bmPrice;
-        gameState.wantedLevel += 15;
-        gameState.reputation -= 5;
-
-        // ✅ GameEvents 转发
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, ledger.shopFunds, bmPrice, "黑市交易");
-        GameEvents.SafeInvoke(GameEvents.OnWantedChanged, gameState.wantedLevel, 15f);
-        GameEvents.SafeInvoke(GameEvents.OnReputationChanged, gameState.reputation, -5f);
-        GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "black_market", 0.8f);
-
-        return $"✓ 黑市交易完成！获得 {bmPrice:F0} 信用点。（通缉值+15，声望-5）";
-    }
-
-    string ExecuteNegotiate()
-    {
-        if (selectedItem.aiParasite == null || !selectedItem.aiParasite.discoveredByPlayer)
-            return "该物品中没有可对话的意识。";
-
-        OnAIDialogueRequested?.Invoke(selectedItem.aiParasite);
-        GameEvents.SafeInvoke(GameEvents.OnOpenAIDialogue, selectedItem);
-        return "正在与AI对话...";
+        selectedItem = null;
+        selectedStockItem = null;
+        lastReport = null;
+        lastOffer = 0;
+        return "已拒绝交易。";
     }
 
     // ============ AI 决策回调 ============
-
-    public void OnAIContainAndPawn()
-    {
-        if (selectedItem?.aiParasite == null) return;
-
-        selectedItem.aiParasite.contained = true;
-        selectedItem.aiParasite.corruptionLevel = 0f;
-
-        float offer = pricer.EstimateOffer(selectedItem, dayScheduler.currentDayConfig) * 0.7f;
-        var ticket = ledger.AcceptItem(selectedItem, offer, dayScheduler.currentDayConfig);
-
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, ledger.shopFunds, -offer, "AI隔离收当");
-        GameEvents.SafeInvoke(GameEvents.OnTicketStatusChanged, ticket, TicketStatus.None, TicketStatus.Held);
-
-        OnDecisionMade?.Invoke($"AI已隔离收当。估价折损30%，放款 {offer:F0}。");
-        selectedItem = null;
-    }
 
     public void OnAIFree()
     {
@@ -405,61 +367,28 @@ public class PawnDeskManager : MonoBehaviour
             gameState.globalFlags.Add("AI_Integrated");
             GameEvents.SafeInvoke(GameEvents.OnGlobalFlagChanged, "AI_Integrated", true);
             GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "ai_merge_success", 1f);
-            OnDecisionMade?.Invoke("✓ 融合成功！你获得了AI的部分能力。（扫描精度+20%，估值直觉解锁）");
+            OnDecisionMade?.Invoke("融合成功！你获得了AI的部分能力。（扫描精度+20%，估值直觉解锁）");
         }
         else
         {
             gameState.wantedLevel += 20;
             GameEvents.SafeInvoke(GameEvents.OnWantedChanged, gameState.wantedLevel, 20f);
             GameEvents.SafeInvoke(GameEvents.OnScreenShake, 0.5f, 1f);
-            OnDecisionMade?.Invoke("✗ 融合失败！AI试图夺取你的意识控制权！（通缉值+20）");
+            OnDecisionMade?.Invoke("融合失败！AI试图夺取你的意识控制权！（通缉值+20）");
         }
         selectedItem = null;
     }
 
     // ============ 查询 ============
-    public List<PawnTicket> GetActiveTickets() => ledger.activeTickets.Where(t => t.status == TicketStatus.Held).ToList();
-    public float GetShopFunds() => ledger.shopFunds;
+    public List<ItemInstance> GetCounterItems()
+        => counterInventory != null ? counterInventory.GetAllItems() : new List<ItemInstance>();
+
+    public int GetCounterCount()
+        => counterInventory != null ? counterInventory.UsedSlots : 0;
+
+    public float GetShopFunds() => shopFunds;
     public int GetCurrentDay() => gameState.currentDay;
     public float GetReputation() => gameState.reputation;
     public float GetWantedLevel() => gameState.wantedLevel;
     public float GetEnergy() => energyLevel;
-
-
-
-    //public void ShowConfirmDialog(string title, string content, System.Action onYes, System.Action onNo)
-    //{
-    //    if (confirmDialogPanel == null) return;
-    //    confirmDialogPanel.SetActive(true);
-    //    if (confirmTitleText != null) confirmTitleText.text = title;
-    //    if (confirmContentText != null) confirmContentText.text = content;
-
-    //    // 清除旧监听
-    //    confirmYesButton.onClick.RemoveAllListeners();
-    //    confirmNoButton.onClick.RemoveAllListeners();
-
-    //    confirmYesButton.onClick.AddListener(() => {
-    //        confirmDialogPanel.SetActive(false);
-    //        onYes?.Invoke();
-    //    });
-
-    //    confirmNoButton.onClick.AddListener(() => {
-    //        confirmDialogPanel.SetActive(false);
-    //        onNo?.Invoke();
-    //    });
-    //}
-
-    //public void ShowToast(string message, float duration = 2f)
-    //{
-    //    if (toastPanel == null || toastText == null) return;
-    //    toastText.text = message;
-    //    toastPanel.SetActive(true);
-    //    CancelInvoke(nameof(HideToast));
-    //    Invoke(nameof(HideToast), duration);
-    //}
-
-    //void HideToast()
-    //{
-    //    if (toastPanel != null) toastPanel.SetActive(false);
-    //}
 }
