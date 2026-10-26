@@ -12,9 +12,9 @@ public enum ClientCareer
     HerbMaster, BeastMaster, PillMaster, ArtifactMaster, FormationMaster,
     TalismanMaster, DivinationMaster, MusicMaster, SpiritualChef
 }
-//客户意图：只卖（带物品出售）/ 只买（从货架购买）/ 既买又卖 / 检查人员 / 小偷 / 强盗
+//客户意图：只卖（带物品出售）/ 只买（从货架购买）/ 检查人员 / 既买又卖 / 小偷 / 强盗
 //注：值序向后兼容已有存档（Seller=0, Buyer=1，新增类型排在后面）
-public enum ClientType { Seller, Buyer, Both, Inspector, Thief, Robber }
+public enum ClientType { Seller, Buyer, Inspector, Both, Thief, Robber }
 
 /// 物品类别
 /// </summary>
