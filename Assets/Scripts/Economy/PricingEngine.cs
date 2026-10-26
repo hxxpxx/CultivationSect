@@ -16,6 +16,33 @@ public class PricingEngine
         return baseOffer * day.pawnPayoutRate;
     }
 
+    // 标准报价：未扫描，一律按普通物品给价，不含任何特殊情况折扣
+    public float EstimateStandardOffer(ItemInstance item, DayConfig day)
+    {
+        if (item == null) return 0f;
+        if (item.isBanned) return 0f;   // 禁止流通物不可交易
+
+        float baseOffer = item.baseValue * GetRarityMultiplier(item.rarity) * day.baseDemandMultiplier;
+        return baseOffer * day.pawnPayoutRate;
+    }
+
+    // 扫描后报价：按鉴定发现的特殊情况自动调整价格
+    //   赝品→30%，赃货→70%，危险品→80%；AI 寄生暂不调整（保持标准价）
+    public float EstimateScannedOffer(ItemInstance item, DayConfig day)
+    {
+        if (item == null) return 0f;
+        if (item.isBanned) return 0f;
+
+        float offer = EstimateStandardOffer(item, day);
+
+        if (!item.isAuthentic) offer *= 0.3f;   // 赝品
+        if (item.isStolen)     offer *= 0.7f;   // 赃货
+        if (item.isHazardous)  offer *= 0.8f;   // 危险品
+        // AI 寄生：暂不动，保持标准价
+
+        return offer;
+    }
+
     // 售出定价（不打收购折价，商家加价约 30%）
     public float EstimateSellPrice(ItemInstance item, DayConfig day)
     {

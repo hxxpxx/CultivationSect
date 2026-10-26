@@ -108,13 +108,6 @@ public static class GameEvents
     public static Action<float, float> OnWantedChanged;
 
     /// <summary>
-    /// 当票状态变更
-    /// 参数: (当票, 旧状态, 新状态)
-    /// 触发: 赎回、绝当、收当
-    /// </summary>
-    public static Action<PawnTicket, TicketStatus, TicketStatus> OnTicketStatusChanged;
-
-    /// <summary>
     /// 物品仓库内容变化
     /// 参数: (inventoryID)
     /// 触发: Inventory 任何增删换移分操作，由 InventoryManager 转发

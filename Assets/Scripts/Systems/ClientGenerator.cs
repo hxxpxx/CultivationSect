@@ -9,11 +9,14 @@ public class ClientGenerator
     public int minItemsPerClient = 1;
     public int maxItemsPerClient = 3;
     public float rareItemChance = 0.15f;
+    public float buyerChance = 0.4f;   // 客户为「来买货」的概率
 
     public ClientProfile GenerateClient(int day)
     {
         var clientFaction = GenerateFaction(day);
         var clientCareer = GenerateCareer(day);
+        int level = GenerateLevel(day);
+        var clientType = Random.value < buyerChance ? ClientType.Buyer : ClientType.Seller;
 
         var profile = new ClientProfile
         {
@@ -21,11 +24,14 @@ public class ClientGenerator
             clientName = GenerateName(clientFaction, day),
             clientFaction = clientFaction,
             clientCareer = clientCareer,
-            clientLevel = GenerateLevel(day),
+            clientLevel = level,
             clientPortrait = (int)clientFaction * 16 + (int)clientCareer,
             motive = GenerateMotive(clientFaction, clientCareer, day),
-            dialogueText = GenerateDialogue(clientFaction, day),
-            broughtItems = GenerateItems(day),
+            dialogueText = GenerateDialogue(clientFaction, day, clientType),
+            clientType = clientType,
+            budget = GenerateBudget(clientType, day, level),
+            // 来卖货：携带物品；来买货：不带物品
+            broughtItems = clientType == ClientType.Seller ? GenerateItems(day) : new System.Collections.Generic.List<ItemInstance>(),
             //aiParasite = null  // AI系统另行处理
         };
 
@@ -36,6 +42,15 @@ public class ClientGenerator
         profile.isAICarrier = false; // AI 载体由 AI 系统另行处理，此处默认非载体
 
         return profile;
+    }
+
+    // ===== 预算生成：携带资金有限，随天数与修为提升 =====
+    float GenerateBudget(ClientType type, int day, int level)
+    {
+        // 基准：随天数、修为增长；买家购买力明显更强
+        float baseBudget = 250f + day * 70f + level * 40f;
+        if (type == ClientType.Buyer) baseBudget *= 1.9f;
+        return Mathf.Round(Random.Range(baseBudget * 0.75f, baseBudget * 1.5f));
     }
 
     // ===== 派系生成：正派 / 邪派 / 官府 / 凡俗(散修) =====
@@ -137,8 +152,12 @@ public class ClientGenerator
     }
 
     // ===== 对白生成（按派系口吻，随天数加剧张力） =====
-    string GenerateDialogue(ClientFaction faction, int day)
+    string GenerateDialogue(ClientFaction faction, int day, ClientType type)
     {
+        // 来买货的客户：换成采购口吻
+        if (type == ClientType.Buyer)
+            return Pick(BuyerDialogue);
+
         string line;
         switch (faction)
         {
@@ -251,6 +270,13 @@ public class ClientGenerator
         "听说你这当铺价钱公道，俺才走了三十里山路来的。",
         "掌柜的，这宝贝是俺在山上挖到的，你瞧瞧值几块灵石？"
     };
+    static readonly string[] BuyerDialogue =
+    {
+        "掌柜的，听说你这里货色齐全，我来挑几件趁手的。",
+        "我灵田缺些好东西，你店里可有灵草或矿石出售？",
+        "出门历练，想添置些丹药法宝，你报个价。",
+        "听闻你坊市的货最实在，我特地来采购些。"
+    };
     static readonly string[] RighteousDialogue =
     {
         "贫道近日手头紧，欲将此物典当，还望道友给个公道价。",
@@ -302,7 +328,10 @@ public class ClientGenerator
             }
 
             if (item != null)
+            {
+                item.owner = ItemInstance.ItemOwnership.Customer;   // 客户带来的物品归属客户
                 items.Add(item);
+            }
         }
 
         return items;

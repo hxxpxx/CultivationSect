@@ -22,6 +22,7 @@ public class PawnDeskUI : MonoBehaviour
     public TextMeshProUGUI clientNameText;
     public TextMeshProUGUI clientFactionText;
     public TextMeshProUGUI clientDialogueText;
+    public TextMeshProUGUI clientInfoText;   // 可选：显示客户类型与预算（为空时追加到对白）
     public Image clientPortrait;
 
     [Header("物品面板")]
@@ -235,9 +236,23 @@ public class PawnDeskUI : MonoBehaviour
         clientDialogueText.text = client.dialogueText;
         clientPanel.SetActive(true);
 
+        RefreshClientInfo(client);
         RefreshItemButtons();
         inspectionPanel.SetActive(false);
         ClearSelection();
+    }
+
+    // 显示客户意图与预算
+    void RefreshClientInfo(ClientProfile client)
+    {
+        if (client == null) return;
+        string typeLabel = client.clientType == ClientType.Buyer ? "来买货" : "来卖货";
+        string info = $"[{typeLabel}]  预算: {client.budget:F0}";
+
+        if (clientInfoText != null)
+            clientInfoText.text = info;
+        else if (clientDialogueText != null)
+            clientDialogueText.text = info + "\n" + client.dialogueText;
     }
 
     void OnItemSelectedHandler(ItemInstance item)
@@ -246,9 +261,10 @@ public class PawnDeskUI : MonoBehaviour
         selectedItemDescText.text = item.description;
         inspectionPanel.SetActive(false);
 
-        // 选中物品后即可买卖/拒绝
-        buyButton?.gameObject.SetActive(true);
-        sellButton?.gameObject.SetActive(true);
+        // 按物品归属切换买卖按钮：客户物品→收购；商栈库存→出售
+        bool isCustomerItem = item.owner == ItemInstance.ItemOwnership.Customer;
+        buyButton?.gameObject.SetActive(isCustomerItem);
+        sellButton?.gameObject.SetActive(!isCustomerItem);
         rejectButton?.gameObject.SetActive(true);
     }
 
@@ -256,7 +272,13 @@ public class PawnDeskUI : MonoBehaviour
     {
         inspectionPanel.SetActive(true);
 
-        if (report.HasIssue)
+        if (report == null || !report.scanned)
+        {
+            // 未扫描：仅显示标准报价，提示可扫描检查特殊情况
+            inspectionResultText.text = "<color=white>[标准报价]</color>\n未扫描，按普通物品估价。点击扫描可检查特殊情况。";
+            inspectionResultText.color = Color.white;
+        }
+        else if (report.HasIssue)
         {
             inspectionResultText.text = "<color=red>[异常发现]</color>\n" + string.Join("\n", report.findings);
             inspectionResultText.color = Color.red;
@@ -271,9 +293,11 @@ public class PawnDeskUI : MonoBehaviour
         offerText.text = $"估价: <color=yellow>{offer:F0}</color> 信用点";
         offerText.gameObject.SetActive(true);
 
-        // 启用决策按钮
-        buyButton?.gameObject.SetActive(true);
-        sellButton?.gameObject.SetActive(true);
+        // 启用决策按钮：客户物品→收购；商栈库存→出售
+        bool isCustomerItem = manager != null && manager.selectedItem != null
+            && manager.selectedItem.owner == ItemInstance.ItemOwnership.Customer;
+        buyButton?.gameObject.SetActive(isCustomerItem);
+        sellButton?.gameObject.SetActive(!isCustomerItem);
         rejectButton?.gameObject.SetActive(true);
     }
 
@@ -285,6 +309,7 @@ public class PawnDeskUI : MonoBehaviour
     void OnItemBoughtHandler(ItemInstance item)
     {
         RefreshTopBar();
+        RefreshItemButtons();   // 已收购物品移出客户清单，刷新按钮防止重复购买
         ShowToast($"已收购 {item.itemName}", "success", 2.5f);
     }
 
@@ -478,12 +503,12 @@ public class PawnDeskUI : MonoBehaviour
 
     void ClearSelection()
     {
-        selectedItemNameText.text = "未选择物品";
-        selectedItemDescText.text = "";
-        //inspectionPanel.SetActive(false);
-        //buyButton?.gameObject.SetActive(false);
-        //sellButton?.gameObject.SetActive(false);
-        //rejectButton?.gameObject.SetActive(false);
+        // 来买货的客户没有待售物品，给出采购引导
+        bool isBuyer = manager != null && manager.currentClient != null
+            && manager.currentClient.clientType == ClientType.Buyer;
+
+        selectedItemNameText.text = isBuyer ? "客户想购买商品" : "未选择物品";
+        selectedItemDescText.text = isBuyer ? "请打开货架，选择要出售的物品" : "";
     }
 
     void ShowDayReport()

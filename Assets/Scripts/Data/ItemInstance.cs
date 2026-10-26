@@ -28,6 +28,10 @@ public class ItemInstance
     public bool isQuarantined = false;       // 是否被隔离（AI寄生物品）
     public bool isBanned = false;             // 是否被禁止流通
 
+    // ============ 归属关系 ============
+    public enum ItemOwnership { None, Customer, Merchant }
+    public ItemOwnership owner = ItemOwnership.None;   // 客户带来=Customer；被商栈收购=Merchant
+
     // ============ AI 寄生数据 ============
     // 如果为 null 表示无 AI 寄生
     public AIParasiteData aiParasite;
@@ -124,6 +128,7 @@ public class ItemInstance
             isStolen = this.isStolen,
             isHazardous = this.isHazardous,
             isQuarantined = this.isQuarantined,
+            owner = this.owner,
         };
 
         // 复制自定义属性（浅拷贝 value）
@@ -169,6 +174,7 @@ public class ItemInstance
             isStolen = this.isStolen,
             isHazardous = this.isHazardous,
             isQuarantined = this.isQuarantined,
+            owner = (int)this.owner,
             aiParasiteJSON = this.aiParasite != null ? JsonUtility.ToJson(this.aiParasite) : ""
         };
     }
@@ -190,7 +196,8 @@ public class ItemInstance
             isAuthentic = data.isAuthentic,
             isStolen = data.isStolen,
             isHazardous = data.isHazardous,
-            isQuarantined = data.isQuarantined
+            isQuarantined = data.isQuarantined,
+            owner = (ItemOwnership)data.owner
         };
 
         if (!string.IsNullOrEmpty(data.aiParasiteJSON))
@@ -219,5 +226,6 @@ public class SerializableItemInstance
     public bool isStolen;
     public bool isHazardous;
     public bool isQuarantined;
+    public int owner;          // ItemOwnership 枚举的 int 值
     public string aiParasiteJSON;  // AIParasiteData 的 JSON 字符串
 }

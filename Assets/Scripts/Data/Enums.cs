@@ -12,8 +12,9 @@ public enum ClientCareer
     HerbMaster, BeastMaster, PillMaster, ArtifactMaster, FormationMaster,
     TalismanMaster, DivinationMaster, MusicMaster, SpiritualChef
 }
+//客户意图：来卖货（带物品出售）/ 来买货（从货架购买）
+public enum ClientType { Seller, Buyer }
 
-/// <summary>
 /// 物品类别
 /// </summary>
 //灵植、灵矿、灵宠、丹药、武器、符箓
@@ -22,13 +23,6 @@ public enum ItemCategory { Herb, Ore, Pet, Pill, Weapon, Talisman }
 public enum ItemAttributes { Fire, Ice, Wind, Earth, Magma, Ashes, Snowstorm, Tundra }
 //品级：白 绿 蓝 紫 金 红
 public enum ItemRarity { Common, Uncommon, Rare, Epic, Legendary, Mythic }
-
-
-
-
-
-
-public enum TicketStatus { None, Held, Redeemed, Defaulted } // 绝当
 
 
 //

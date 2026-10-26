@@ -12,6 +12,8 @@ public class ClientProfile
     public ClientCareer clientCareer;        //职业
     public int clientLevel;                  //级别
     public string motive;                    //动机
+    public ClientType clientType = ClientType.Seller;   // 客户类型：来卖 / 来买
+    public float budget;                     // 携带资金上限（购买时受限）
 
     public bool wanted; 
     public bool isLying;
