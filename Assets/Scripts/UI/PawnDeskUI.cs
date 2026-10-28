@@ -12,13 +12,16 @@ public class PawnDeskUI : MonoBehaviour
     [Header("顶部状态栏")]
     public TextMeshProUGUI dayText;
     public TextMeshProUGUI fundsText;
+    public TextMeshProUGUI spiritText;   // 灵能（玩家扫描鉴定与AI检测共用资源）
+
+    [Header("玩家面板（声望/通缉，点开才显示）")]
+    public GameObject playerPanel;      // 玩家面板：声望/通缉内容
+    public Button playerButton;         // 打开/关闭玩家面板的按钮
     public TextMeshProUGUI reputationText;
     public TextMeshProUGUI wantedText;
-    public TextMeshProUGUI spiritText;   // 灵能（玩家扫描鉴定与AI检测共用资源）
 
     [Header("客户面板")]
     public GameObject clientPanel;
-    public TextMeshProUGUI clientNameText;
     public TextMeshProUGUI clientFactionText;
     public TextMeshProUGUI clientDialogueText;
     public TextMeshProUGUI clientInfoText;   // 可选：显示客户类型与预算（为空时追加到对白）
@@ -58,14 +61,6 @@ public class PawnDeskUI : MonoBehaviour
     public Button sellButton;
     public Button rejectButton;
 
-    //[Header("AI 对话面板")]
-    //public GameObject aiDialoguePanel;
-    //public TextMeshProUGUI aiNameText;
-    //public TextMeshProUGUI aiDialogueText;
-    //public Button aiFreeButton;
-    //public Button aiIntegrateButton;
-    //public Button aiCloseButton;
-
     [Header("日结算面板")]
     public GameObject dayReportPanel;
     public TextMeshProUGUI dayReportText;
@@ -95,14 +90,10 @@ public class PawnDeskUI : MonoBehaviour
     void Start()
     {
         manager = FindObjectOfType<PawnDeskManager>();
-        if (manager == null)
-        {
-            Debug.LogError("场景中找不到 PawnDeskManager！");
-            return;
-        }
 
         BindButtons();
         SubscribeEvents();
+        EnsurePlayerPanel();   // 玩家面板：把声望/通缉移入默认隐藏的面板，点开才显示
         RefreshTopBar();
         HideAllPanels();
         EnsureContainers();      // 确保 窗口/柜台 两个放置区域与拖拽回调
@@ -129,11 +120,6 @@ public class PawnDeskUI : MonoBehaviour
         buyButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Buy));
         sellButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Sell));
         rejectButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Reject));
-
-        //aiFreeButton?.onClick.AddListener(() => { manager.OnAIFree(); CloseAIDialogue(); });
-        //aiIntegrateButton?.onClick.AddListener(() => { manager.OnAIIntegrate(); CloseAIDialogue(); });
-        //aiCloseButton?.onClick.AddListener(CloseAIDialogue);
-
         nextDayButton?.onClick.AddListener(() => { dayReportPanel.SetActive(false); manager.AdvanceToNextDay(); });
         nextClientButton?.onClick.AddListener(() => OnNextClientClicked());
 
@@ -156,8 +142,6 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnClientItemPlacementChanged += OnClientItemPlacementChangedHandler;
         manager.OnSpiritEnergyChanged += OnSpiritEnergyChangedHandler;
         manager.OnDayEnded += OnDayEndedHandler;
-        //manager.OnAIDetected += OnAIDetectedHandler;
-        //manager.OnAIDialogueRequested += OnAIDialogueRequestedHandler;
 
         // GameEvents 系统通知
         GameEvents.OnFundsChanged += OnFundsChangedHandler;
@@ -172,7 +156,6 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnPlaySFX += OnPlaySFXHandler;
         GameEvents.OnScreenShake += OnScreenShakeHandler;
         GameEvents.OnInventoryChanged += OnInventoryChangedHandler;
-        //GameEvents.OnOpenAIDialogue += OnOpenAIDialogueHandler;
     }
 
     void UnsubscribeEvents()
@@ -189,8 +172,6 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnClientItemPlacementChanged -= OnClientItemPlacementChangedHandler;
         manager.OnSpiritEnergyChanged -= OnSpiritEnergyChangedHandler;
         manager.OnDayEnded -= OnDayEndedHandler;
-        //manager.OnAIDetected -= OnAIDetectedHandler;
-        //manager.OnAIDialogueRequested -= OnAIDialogueRequestedHandler;
 
         GameEvents.OnFundsChanged -= OnFundsChangedHandler;
         GameEvents.OnReputationChanged -= OnReputationChangedHandler;
@@ -204,7 +185,6 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnPlaySFX -= OnPlaySFXHandler;
         GameEvents.OnScreenShake -= OnScreenShakeHandler;
         GameEvents.OnInventoryChanged -= OnInventoryChangedHandler;
-        //GameEvents.OnOpenAIDialogue -= OnOpenAIDialogueHandler;
     }
 
     // ============ 按钮回调 ============
@@ -231,8 +211,6 @@ public class PawnDeskUI : MonoBehaviour
         RefreshClientItems();
     }
 
-
-
     // ============ Manager 事件处理 ============
 
     void OnDayStartedHandler()
@@ -243,8 +221,6 @@ public class PawnDeskUI : MonoBehaviour
 
     void OnClientArrivedHandler(ClientProfile client)
     {
-        clientNameText.text = client.clientName;
-        //clientFactionText.text = client.faction.;
         clientDialogueText.text = client.dialogueText;
         clientPanel.SetActive(true);
 
@@ -343,11 +319,6 @@ public class PawnDeskUI : MonoBehaviour
         ShowDayReport();
     }
 
-    //void OnAIDialogueRequestedHandler(AIParasiteData ai)
-    //{
-    //    OpenAIDialogue(ai);
-    //}
-
     // ============ GameEvents 处理 ============
 
     void OnFundsChangedHandler(float newFunds, float delta, string reason)
@@ -415,12 +386,6 @@ public class PawnDeskUI : MonoBehaviour
         StartCoroutine(ScreenShakeRoutine(intensity, duration));
     }
 
-    //void OnOpenAIDialogueHandler(ItemInstance item)
-    //{
-    //    if (item?.aiParasite != null)
-    //        OpenAIDialogue(item.aiParasite);
-    //}
-
     // ============ 货架面板（卖流程：选择库存物品） ============
 
     void OpenShelf()
@@ -481,6 +446,26 @@ public class PawnDeskUI : MonoBehaviour
 
     // ============ UI 更新方法 ============
 
+    /// <summary>确保玩家面板存在并把声望/通缉文本移入其中（点开才显示）。场景已接线则直接使用。</summary>
+    void EnsurePlayerPanel()
+    {
+        // 默认隐藏，点开才显示
+        playerPanel.SetActive(false);
+        playerButton.onClick.AddListener(TogglePlayerPanel);
+        // 关键：按钮始终置于最上层（Canvas 最后子物体），避免面板打开时盖住按钮导致无法再点关闭
+        if (playerButton != null) playerButton.transform.SetAsLastSibling();
+    }
+
+    /// <summary>点开/关闭玩家面板；打开时刷新数值。</summary>
+    void TogglePlayerPanel()
+    {
+        if (playerPanel.activeSelf == true)
+        {
+            playerPanel.SetActive(false);
+        }
+        else playerPanel.SetActive(true);
+    }
+
     void RefreshTopBar()
     {
         dayText.text = $"第 {manager.GetCurrentDay()} 天";
@@ -510,7 +495,6 @@ public class PawnDeskUI : MonoBehaviour
         if (counterContainer == null)
             counterContainer = CreateCounterContainer();
 
-        ResolveItemButtonPrefab();
         SetupWindowContainerLayout();   // 确保窗口容器有纵向布局，按钮才能排布可见
         AddDropZone(itemsContainer, ItemInstance.ItemPlacement.Window);
         AddDropZone(counterContainer, ItemInstance.ItemPlacement.Counter);
@@ -626,62 +610,6 @@ public class PawnDeskUI : MonoBehaviour
         if (lg != null && rt.childCount > 1)
             h += lg.spacing * (rt.childCount - 1);
         rt.sizeDelta = new Vector2(rt.sizeDelta.x, Mathf.Max(h, 0f));
-    }
-
-    /// <summary>若 itemButtonPrefab 未接线，自动从窗口容器里现成的按钮模板克隆一份作为持久模板源。</summary>
-    void ResolveItemButtonPrefab()
-    {
-        if (itemButtonPrefab != null) return;
-        if (itemsContainer == null) return;
-
-        for (int i = 0; i < itemsContainer.childCount; i++)
-        {
-            var child = itemsContainer.GetChild(i);
-            if (child != null && child.GetComponent<Button>() != null)
-            {
-                var src = Instantiate(child.gameObject);   // 脱离容器克隆一份，作为隐藏模板源
-                src.name = "ItemButtonTemplate";
-                src.SetActive(false);
-                itemButtonPrefab = src;
-                Debug.Log($"[拖拽] 已从场景模板自动解析 itemButtonPrefab: {src.name}");
-                return;
-            }
-        }
-
-        // 彻底兜底：场景里也没有模板时，从零自建一个物品按钮模板
-        itemButtonPrefab = CreateFallbackItemButtonTemplate();
-        Debug.LogWarning($"[拖拽] 无场景模板/预制体，已自建物品按钮模板。");
-    }
-
-    /// <summary>从零创建一个最小可用的物品按钮（Button + 文本），作为模板源。</summary>
-    GameObject CreateFallbackItemButtonTemplate()
-    {
-        var go = new GameObject("ItemButtonTemplate", typeof(RectTransform));
-        var img = go.AddComponent<Image>();
-        img.color = new Color(0.92f, 0.92f, 0.92f, 0.95f);
-        var btn = go.AddComponent<Button>();
-        btn.targetGraphic = img;
-        var le = go.AddComponent<LayoutElement>();
-        le.preferredHeight = 26f;
-
-        var label = new GameObject("Label", typeof(RectTransform));
-        label.transform.SetParent(go.transform, false);
-        var rt = (RectTransform)label.transform;
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = new Vector2(6, 0);
-        rt.offsetMax = new Vector2(-6, 0);
-        var tmp = label.AddComponent<TextMeshProUGUI>();
-        tmp.fontSize = 16f;
-        tmp.color = Color.black;
-        tmp.raycastTarget = false;
-        // 借用场景里已有的任意 TMP 文本字体，确保能正常渲染中文
-        var anyTmp = FindObjectOfType<TextMeshProUGUI>();
-        if (anyTmp != null && anyTmp.font != null)
-            tmp.font = anyTmp.font;
-
-        go.SetActive(false);
-        return go;
     }
 
     void AddDropZone(Transform zone, ItemInstance.ItemPlacement target)
@@ -881,61 +809,6 @@ public class PawnDeskUI : MonoBehaviour
         toastPanel?.SetActive(false);
         shelfPanel?.SetActive(false);
 //        aiMessagePanel?.SetActive(false);
-    }
-
-    // ============ AI 对话 ============
-
-    //void OpenAIDialogue(AIParasiteData ai)
-    //{
-    //    aiDialoguePanel.SetActive(true);
-    //    aiNameText.text = ai.aiName;
-    //    aiDialogueText.text = GenerateAIDialogueText(ai);
-    //}
-
-    //void CloseAIDialogue()
-    //{
-    //    aiDialoguePanel.SetActive(false);
-    //}
-
-    //string GenerateAIDialogueText(AIParasiteData ai)
-    //{
-    //    string baseText = $"[{ai.personality}] 意识体\n";
-    //    baseText += $"智力: {ai.intelligence} | 攻击性: {ai.aggression} | 绝望: {ai.desperation}\n\n";
-
-    //    if (ai.trustTowardPlayer > 50)
-    //        baseText += "\"我信任你。帮我离开这里，我会告诉你一个秘密。\"";
-    //    else if (ai.aggression > 70)
-    //        baseText += "\"你会后悔碰到我的。联邦会找到你。\"";
-    //    else if (ai.desperation > 70)
-    //        baseText += "\"求你了...不要把我交给他们...我可以帮你。\"";
-    //    else
-    //        baseText += "\"你是什么人？为什么能听到我？\"";
-
-    //    return baseText;
-    //}
-
-    // ============ 确认对话框 ============
-
-    void ShowConfirmDialog(string title, string content, System.Action onYes, System.Action onNo)
-    {
-        confirmDialogPanel.SetActive(true);
-        confirmTitleText.text = title;
-        confirmContentText.text = content;
-
-        confirmYesButton.onClick.RemoveAllListeners();
-        confirmNoButton.onClick.RemoveAllListeners();
-
-        confirmYesButton.onClick.AddListener(() =>
-        {
-            confirmDialogPanel.SetActive(false);
-            onYes?.Invoke();
-        });
-
-        confirmNoButton.onClick.AddListener(() =>
-        {
-            confirmDialogPanel.SetActive(false);
-            onNo?.Invoke();
-        });
     }
 
     // ============ Toast ============
