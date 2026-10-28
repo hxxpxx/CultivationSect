@@ -50,12 +50,12 @@ public class ClientGenerator
         // 权重：只卖与既买又卖为交易主力，小偷/强盗较少（后期可随 day 调整）
         float[] weights = new float[]
         {
-            30f,  // Seller    只卖
-            25f,  // Buyer     只买
-            10f,  // Inspector 检查人员
-            20f,  // Both      既买又卖
-            8f,   // Thief     小偷
-            7f    // Robber    强盗
+            90f,  // Seller    只卖
+            5f,  // Buyer     只买
+            5f,  // Both      既买又卖
+            0f,  // Inspector 检查人员
+            0f,   // Thief     小偷
+            0f    // Robber    强盗
         };
         return (ClientType)WeightedPick(weights);
     }

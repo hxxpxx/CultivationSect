@@ -51,25 +51,11 @@ public class ItemDatabase : ScriptableObject
 
     void LoadFromResources()
     {
-#if UNITY_EDITOR
-        // 编辑器下用 AssetDatabase 全扫描（支持子目录）
-        string[] guids = UnityEditor.AssetDatabase.FindAssets(
-            "t:ItemDef",
-            new[] { $"Assets/Resources/{scanFolder}" }
-        );
-        foreach (var guid in guids)
-        {
-            string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
-            var def = UnityEditor.AssetDatabase.LoadAssetAtPath<ItemDef>(path);
-            if (def != null)
-                Register(def);
-        }
-#else
-        // 运行时用 Resources.LoadAll
+        // 统一用 Resources.LoadAll：编辑器与打包都可靠，且不受 AssetDatabase 导入状态影响。
+        // （原 #if UNITY_EDITOR 用 AssetDatabase.FindAssets，会出现只扫到部分资产、漏加载的情况。）
         var loaded = Resources.LoadAll<ItemDef>(scanFolder);
         foreach (var def in loaded)
             Register(def);
-#endif
     }
 
     void Register(ItemDef def)

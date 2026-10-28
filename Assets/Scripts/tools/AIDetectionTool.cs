@@ -4,17 +4,10 @@ using UnityEngine;
 public class AIDetectionTool : MonoBehaviour
 {
     public float detectionPower = 1.0f;         // 设备性能
-    public float energyCost = 10f;              // 每次使用消耗能量
 
+    // 资源检查/扣除由 PawnDeskManager 统一处理（消耗灵能），此处仅负责检测逻辑
     public AIDetectionResult ScanForAI(ItemInstance item, PawnDeskManager manager)
     {
-        if (manager.energyLevel < energyCost)
-        {
-            return new AIDetectionResult { success = false, message = "检测设备能量不足" };
-        }
-
-        manager.energyLevel -= energyCost;
-
         if (item.aiParasite == null || !item.aiParasite.isPresent)
         {
             return new AIDetectionResult { success = true, found = false, message = "未检测到异常意识活动" };

@@ -14,8 +14,7 @@ public class PawnDeskUI : MonoBehaviour
     public TextMeshProUGUI fundsText;
     public TextMeshProUGUI reputationText;
     public TextMeshProUGUI wantedText;
-    public TextMeshProUGUI energyText;
-    public Slider energyBar;
+    public TextMeshProUGUI spiritText;   // 灵能（玩家扫描鉴定与AI检测共用资源）
 
     [Header("客户面板")]
     public GameObject clientPanel;
@@ -27,10 +26,16 @@ public class PawnDeskUI : MonoBehaviour
 
     [Header("物品面板")]
     public GameObject itemsPanel;
-    public Transform itemsContainer;
+    public Transform itemsContainer;      // 「窗口」：客户物品初到时的落位（未估价）
     public GameObject itemButtonPrefab;  // 含 Button + Text + Image
     public TextMeshProUGUI selectedItemNameText;
     public TextMeshProUGUI selectedItemDescText;
+
+    [Header("柜台估价面板（客户物品自动估价）")]
+    public Transform counterContainer;     // 「柜台」：拖到此处的物品自动估价；留空则运行时自动创建
+    public TextMeshProUGUI counterCountText;   // 可选：显示 柜台估价物品数
+
+    Transform windowContainer;   // 「窗口」运行时在屏幕左侧自动生成的竖列容器（不依赖场景旧容器）
 
     [Header("货架面板")]
     public GameObject shelfPanel;
@@ -84,6 +89,7 @@ public class PawnDeskUI : MonoBehaviour
     List<GameObject> shelfButtons = new List<GameObject>();
     Coroutine toastCoroutine;
     Coroutine aiMessageCoroutine;
+    Coroutine refreshCoroutine;
 
     // ============ 生命周期 ============
     void Start()
@@ -99,7 +105,9 @@ public class PawnDeskUI : MonoBehaviour
         SubscribeEvents();
         RefreshTopBar();
         HideAllPanels();
+        EnsureContainers();      // 确保 窗口/柜台 两个放置区域与拖拽回调
         RefreshShelfItems();   // 预刷新货架占用/列表
+        RefreshClientItems();  // 预刷新客户窗口/柜台物品
 
         dayReportPanel.SetActive(false);
     }
@@ -145,6 +153,8 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnDecisionMade += OnDecisionMadeHandler;
         manager.OnItemBought += OnItemBoughtHandler;
         manager.OnItemSold += OnItemSoldHandler;
+        manager.OnClientItemPlacementChanged += OnClientItemPlacementChangedHandler;
+        manager.OnSpiritEnergyChanged += OnSpiritEnergyChangedHandler;
         manager.OnDayEnded += OnDayEndedHandler;
         //manager.OnAIDetected += OnAIDetectedHandler;
         //manager.OnAIDialogueRequested += OnAIDialogueRequestedHandler;
@@ -176,6 +186,8 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnDecisionMade -= OnDecisionMadeHandler;
         manager.OnItemBought -= OnItemBoughtHandler;
         manager.OnItemSold -= OnItemSoldHandler;
+        manager.OnClientItemPlacementChanged -= OnClientItemPlacementChangedHandler;
+        manager.OnSpiritEnergyChanged -= OnSpiritEnergyChangedHandler;
         manager.OnDayEnded -= OnDayEndedHandler;
         //manager.OnAIDetected -= OnAIDetectedHandler;
         //manager.OnAIDialogueRequested -= OnAIDialogueRequestedHandler;
@@ -216,7 +228,7 @@ public class PawnDeskUI : MonoBehaviour
     void OnNextClientClicked()
     {
         manager.ProcessNextClient();
-        RefreshItemButtons();
+        RefreshClientItems();
     }
 
 
@@ -237,7 +249,7 @@ public class PawnDeskUI : MonoBehaviour
         clientPanel.SetActive(true);
 
         RefreshClientInfo(client);
-        RefreshItemButtons();
+        RefreshClientItems();
         inspectionPanel.SetActive(false);
         ClearSelection();
     }
@@ -258,12 +270,18 @@ public class PawnDeskUI : MonoBehaviour
     void OnItemSelectedHandler(ItemInstance item)
     {
         selectedItemNameText.text = item.itemName;
-        selectedItemDescText.text = item.description;
         inspectionPanel.SetActive(false);
 
-        // 按物品归属切换买卖按钮：客户物品→收购；商栈库存→出售
+        // 按归属与放置区域切换按钮：客户物品需放到柜台（已自动估价）才可收购
         bool isCustomerItem = item.owner == ItemInstance.ItemOwnership.Customer;
-        buyButton?.gameObject.SetActive(isCustomerItem);
+        bool onCounter = isCustomerItem && item.placement == ItemInstance.ItemPlacement.Counter;
+
+        if (isCustomerItem && !onCounter)
+            selectedItemDescText.text = "「窗口」中的物品尚未估价。\n把它拖到柜台，会自动估价。";
+        else
+            selectedItemDescText.text = item.description;
+
+        buyButton?.gameObject.SetActive(onCounter);
         sellButton?.gameObject.SetActive(!isCustomerItem);
         rejectButton?.gameObject.SetActive(true);
     }
@@ -293,10 +311,11 @@ public class PawnDeskUI : MonoBehaviour
         offerText.text = $"估价: <color=yellow>{offer:F0}</color> 信用点";
         offerText.gameObject.SetActive(true);
 
-        // 启用决策按钮：客户物品→收购；商栈库存→出售
+        // 启用决策按钮：客户物品需放到柜台（已估价）→收购；商栈库存→出售
         bool isCustomerItem = manager != null && manager.selectedItem != null
             && manager.selectedItem.owner == ItemInstance.ItemOwnership.Customer;
-        buyButton?.gameObject.SetActive(isCustomerItem);
+        bool onCounter = isCustomerItem && manager.selectedItem.placement == ItemInstance.ItemPlacement.Counter;
+        buyButton?.gameObject.SetActive(onCounter);
         sellButton?.gameObject.SetActive(!isCustomerItem);
         rejectButton?.gameObject.SetActive(true);
     }
@@ -309,7 +328,7 @@ public class PawnDeskUI : MonoBehaviour
     void OnItemBoughtHandler(ItemInstance item)
     {
         RefreshTopBar();
-        RefreshItemButtons();   // 已收购物品移出客户清单，刷新按钮防止重复购买
+        RefreshClientItems();   // 已收购物品移出客户清单，刷新窗口/柜台防止重复购买
         ShowToast($"已收购 {item.itemName}", "success", 2.5f);
     }
 
@@ -322,11 +341,6 @@ public class PawnDeskUI : MonoBehaviour
     void OnDayEndedHandler()
     {
         ShowDayReport();
-    }
-
-    void OnAIDetectedHandler(string msg)
-    {
-        ShowToast(msg, "warning", 4f);
     }
 
     //void OnAIDialogueRequestedHandler(AIParasiteData ai)
@@ -473,32 +487,360 @@ public class PawnDeskUI : MonoBehaviour
         fundsText.text = $"资金: {manager.GetShopFunds():F0}";
         reputationText.text = $"声望: {manager.GetReputation():F0}";
         wantedText.text = $"通缉: {manager.GetWantedLevel():F0}";
-        energyText.text = $"能量: {manager.GetEnergy():F0}";
-        if (energyBar != null) energyBar.value = manager.GetEnergy() / manager.maxEnergy;
+        spiritText.text = $"灵能: {manager.GetSpiritEnergy():F0}";
     }
 
-    void RefreshItemButtons()
+    /// <summary>灵能变动：仅刷新灵能显示。</summary>
+    void OnSpiritEnergyChangedHandler()
     {
-        // 清除旧按钮
-        foreach (var btn in itemButtons)
-            Destroy(btn);
+        spiritText.text = $"灵能: {manager.GetSpiritEnergy():F0}";
+    }
+
+    // ============ 客户物品渲染（窗口 ⇄ 柜台） ============
+
+    /// <summary>确保 窗口/柜台 两个放置区域存在，并注册拖拽回调。</summary>
+    void EnsureContainers()
+    {
+        // 窗口：屏幕左侧自动生成竖列容器（按用户选择，不依赖场景旧容器）
+        if (windowContainer == null)
+            windowContainer = CreateWindowContainer();
+        itemsContainer = windowContainer;
+
+        // 柜台：场景中未指定则在物品面板旁自动创建；否则确保其带 DropZone
+        if (counterContainer == null)
+            counterContainer = CreateCounterContainer();
+
+        ResolveItemButtonPrefab();
+        SetupWindowContainerLayout();   // 确保窗口容器有纵向布局，按钮才能排布可见
+        AddDropZone(itemsContainer, ItemInstance.ItemPlacement.Window);
+        AddDropZone(counterContainer, ItemInstance.ItemPlacement.Counter);
+
+        // 注册拖放回调：由 manager 决定去柜台 / 回窗口
+        CounterDrag.RequestMove = (item, target) =>
+        {
+            if (manager == null || item == null) return false;
+            if (target == ItemInstance.ItemPlacement.Counter)
+                manager.PlaceItemOnCounter(item);
+            else
+                manager.MoveItemBackToWindow(item);
+            return true;
+        };
+    }
+
+    /// <summary>运行时在屏幕左侧自动创建窗口容器（与右侧柜台对称）。用户可在场景中自行接线更美观的布局。</summary>
+    Transform CreateWindowContainer()
+    {
+        var parent = itemsPanel != null ? itemsPanel.transform.parent : transform;
+        var go = new GameObject("WindowContainer", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = new Vector2(0f, 0f);
+        rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0f, 0.5f);
+        rt.anchoredPosition = new Vector2(10f, 0f);
+        rt.sizeDelta = new Vector2(240f, 0f);
+
+        if (go.GetComponent<CanvasRenderer>() == null) go.AddComponent<CanvasRenderer>();
+        var bg = go.AddComponent<Image>();
+        bg.color = new Color(0.7f, 0.8f, 0.95f, 0.18f);
+
+        var lg = go.AddComponent<VerticalLayoutGroup>();
+        lg.padding = new RectOffset(6, 6, 6, 6);
+        lg.spacing = 4f;
+        lg.childForceExpandHeight = false;
+        lg.childForceExpandWidth = true;
+        lg.childControlWidth = true;
+        lg.childControlHeight = false;
+
+        // 标题
+        var titleGo = new GameObject("WindowTitle", typeof(RectTransform));
+        titleGo.transform.SetParent(go.transform, false);
+        titleGo.AddComponent<CanvasRenderer>();
+        var title = titleGo.AddComponent<TextMeshProUGUI>();
+        title.text = "窗口物品";
+        title.fontSize = 22;
+        title.color = Color.white;
+        title.raycastTarget = false;
+        var f = ResolveFont();
+        if (f != null) title.font = f;
+
+        // 提示
+        var tipGo = new GameObject("WindowTip", typeof(RectTransform));
+        tipGo.transform.SetParent(go.transform, false);
+        tipGo.AddComponent<CanvasRenderer>();
+        var tip = tipGo.AddComponent<TextMeshProUGUI>();
+        tip.text = "顾客带来的物品\n拖到柜台估价";
+        tip.fontSize = 16;
+        tip.color = new Color(1f, 1f, 1f, 0.7f);
+        tip.raycastTarget = false;
+        if (f != null) tip.font = f;
+
+        return go.transform;
+    }
+
+    /// <summary>借用场景里任意已有 TMP 文本的字体，确保代码创建的文本能正常渲染中文。</summary>
+    TMP_FontAsset ResolveFont()
+    {
+        foreach (var t in FindObjectsOfType<TextMeshProUGUI>())
+            if (t != null && t.font != null)
+                return t.font;
+        return null;
+    }
+
+    /// <summary>确保窗口容器有纵向布局，让物品按钮在可见区域内依次排列。</summary>
+    void SetupWindowContainerLayout()
+    {
+        if (itemsContainer == null) return;
+
+        if (itemsContainer.GetComponent<VerticalLayoutGroup>() == null)
+        {
+            var lg = itemsContainer.gameObject.AddComponent<VerticalLayoutGroup>();
+            lg.padding = new RectOffset(4, 4, 4, 4);
+            lg.spacing = 4f;
+            lg.childControlWidth = true;
+            lg.childForceExpandWidth = true;
+            lg.childControlHeight = true;
+            lg.childForceExpandHeight = false;
+        }
+    }
+
+    /// <summary>按子物体偏好高度撑开窗口容器（ScrollRect 内容），保证按钮都落在可视区内。</summary>
+    void FitWindowContainerHeight()
+    {
+        if (itemsContainer == null) return;
+        var rt = itemsContainer as RectTransform;
+        if (rt == null) return;
+
+        LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+        float h = 0f;
+        for (int i = 0; i < rt.childCount; i++)
+        {
+            var child = rt.GetChild(i) as RectTransform;
+            if (child == null) continue;
+            float childH = LayoutUtility.GetPreferredSize(child, 1); // 1 = 垂直轴
+            if (childH <= 0f) childH = child.rect.height;            // 兜底：用实际矩形高度
+            h += childH;
+        }
+        var lg = rt.GetComponent<VerticalLayoutGroup>();
+        if (lg != null && rt.childCount > 1)
+            h += lg.spacing * (rt.childCount - 1);
+        rt.sizeDelta = new Vector2(rt.sizeDelta.x, Mathf.Max(h, 0f));
+    }
+
+    /// <summary>若 itemButtonPrefab 未接线，自动从窗口容器里现成的按钮模板克隆一份作为持久模板源。</summary>
+    void ResolveItemButtonPrefab()
+    {
+        if (itemButtonPrefab != null) return;
+        if (itemsContainer == null) return;
+
+        for (int i = 0; i < itemsContainer.childCount; i++)
+        {
+            var child = itemsContainer.GetChild(i);
+            if (child != null && child.GetComponent<Button>() != null)
+            {
+                var src = Instantiate(child.gameObject);   // 脱离容器克隆一份，作为隐藏模板源
+                src.name = "ItemButtonTemplate";
+                src.SetActive(false);
+                itemButtonPrefab = src;
+                Debug.Log($"[拖拽] 已从场景模板自动解析 itemButtonPrefab: {src.name}");
+                return;
+            }
+        }
+
+        // 彻底兜底：场景里也没有模板时，从零自建一个物品按钮模板
+        itemButtonPrefab = CreateFallbackItemButtonTemplate();
+        Debug.LogWarning($"[拖拽] 无场景模板/预制体，已自建物品按钮模板。");
+    }
+
+    /// <summary>从零创建一个最小可用的物品按钮（Button + 文本），作为模板源。</summary>
+    GameObject CreateFallbackItemButtonTemplate()
+    {
+        var go = new GameObject("ItemButtonTemplate", typeof(RectTransform));
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.92f, 0.92f, 0.92f, 0.95f);
+        var btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+        var le = go.AddComponent<LayoutElement>();
+        le.preferredHeight = 26f;
+
+        var label = new GameObject("Label", typeof(RectTransform));
+        label.transform.SetParent(go.transform, false);
+        var rt = (RectTransform)label.transform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(6, 0);
+        rt.offsetMax = new Vector2(-6, 0);
+        var tmp = label.AddComponent<TextMeshProUGUI>();
+        tmp.fontSize = 16f;
+        tmp.color = Color.black;
+        tmp.raycastTarget = false;
+        // 借用场景里已有的任意 TMP 文本字体，确保能正常渲染中文
+        var anyTmp = FindObjectOfType<TextMeshProUGUI>();
+        if (anyTmp != null && anyTmp.font != null)
+            tmp.font = anyTmp.font;
+
+        go.SetActive(false);
+        return go;
+    }
+
+    void AddDropZone(Transform zone, ItemInstance.ItemPlacement target)
+    {        if (zone == null) return;
+
+        // 确保有可接收 Drop 的射线图形（否则 OnDrop 不会触发）
+        var img = zone.GetComponent<Image>();
+        if (img == null)
+        {
+            if (zone.GetComponent<CanvasRenderer>() == null)
+                zone.gameObject.AddComponent<CanvasRenderer>();
+            img = zone.gameObject.AddComponent<Image>();
+            img.color = new Color(1f, 1f, 1f, 0.02f); // 近乎透明，仅用于接收射线
+        }
+
+        var dz = zone.GetComponent<ItemDropZone>();
+        if (dz == null) dz = zone.gameObject.AddComponent<ItemDropZone>();
+        dz.targetPlacement = target;
+    }
+
+    /// <summary>运行时自动创建一个柜台容器（右侧竖列）。用户可在场景中自行接线更美观的布局。</summary>
+    Transform CreateCounterContainer()
+    {
+        var parent = itemsPanel != null ? itemsPanel.transform.parent : transform;
+        var go = new GameObject("CounterContainer", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = new Vector2(1f, 0f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(1f, 0.5f);
+        rt.anchoredPosition = new Vector2(-10f, 0f);
+        rt.sizeDelta = new Vector2(220f, 0f);
+
+        if (go.GetComponent<CanvasRenderer>() == null) go.AddComponent<CanvasRenderer>();
+        var bg = go.AddComponent<Image>();
+        bg.color = new Color(0.85f, 0.75f, 0.55f, 0.18f);
+
+        var lg = go.AddComponent<VerticalLayoutGroup>();
+        lg.padding = new RectOffset(6, 6, 6, 6);
+        lg.spacing = 4f;
+        lg.childForceExpandHeight = false;
+        lg.childForceExpandWidth = true;
+        lg.childControlWidth = true;
+        lg.childControlHeight = false;
+
+        // 标题
+        var titleGo = new GameObject("CounterTitle", typeof(RectTransform));
+        titleGo.transform.SetParent(go.transform, false);
+        titleGo.AddComponent<CanvasRenderer>();
+        var title = titleGo.AddComponent<TextMeshProUGUI>();
+        title.text = "柜台估价";
+        title.fontSize = 22;
+        title.color = Color.yellow;
+        title.raycastTarget = false;
+        var f = ResolveFont();
+        if (f != null) title.font = f;
+
+        // 占位提示
+        var tipGo = new GameObject("CounterTip", typeof(RectTransform));
+        tipGo.transform.SetParent(go.transform, false);
+        tipGo.AddComponent<CanvasRenderer>();
+        var tip = tipGo.AddComponent<TextMeshProUGUI>();
+        tip.text = "把客户物品拖到这里\n自动估价";
+        tip.fontSize = 16;
+        tip.color = new Color(1f, 1f, 1f, 0.7f);
+        tip.raycastTarget = false;
+        if (f != null) tip.font = f;
+
+        return go.transform;
+    }
+
+    /// <summary>刷新客户窗口与柜台两个列表。</summary>
+    void RefreshClientItems()
+    {
+        // 1) 销毁跟踪的旧按钮（含拖拽期间被临时提升到根 Canvas 的）
+        foreach (var go in itemButtons)
+            if (go != null) Destroy(go);
         itemButtons.Clear();
 
-        if (manager.currentClient == null) return;
+        // 2) 清空两个容器里的所有子物体，剔除场景遗留的模板按钮/未被跟踪的旧按钮；
+        //    只保留运行时自动生成的标题与提示（按名字豁免）。
+        ClearAllChildren(itemsContainer, "WindowTitle", "WindowTip");
+        ClearAllChildren(counterContainer, "CounterTitle", "CounterTip");
 
-        for (int i = 0; i < manager.currentClient.broughtItems.Count; i++)
+        if (manager == null || manager.currentClient == null)
         {
-            int index = i;
-            var item = manager.currentClient.broughtItems[i];
-            var btnObj = Instantiate(itemButtonPrefab, itemsContainer);
+            return;
+        }
+
+        // 窗口（未估价）
+        BuildItemButtons(manager.GetClientWindowItems(), itemsContainer, false);
+
+        // 柜台（自动估价）
+        BuildItemButtons(manager.GetClientCounterItems(), counterContainer, true);
+
+        FitWindowContainerHeight();   // 撑开窗口容器高度，确保按钮在可视区内
+
+        if (counterCountText != null)
+            counterCountText.text = $"柜台估价: {manager.GetClientCounterCount()}";
+    }
+
+    /// <summary>销毁容器的全部子物体，可豁免指定名字的子物体（保留柜台标题/提示）。</summary>
+    void ClearAllChildren(Transform container, params string[] keepNames)
+    {
+        if (container == null) return;
+        for (int i = container.childCount - 1; i >= 0; i--)
+        {
+            var child = container.GetChild(i);
+            if (child == null) continue;
+            bool keep = false;
+            for (int k = 0; k < keepNames.Length; k++)
+                if (child.name == keepNames[k]) { keep = true; break; }
+            if (!keep) Destroy(child.gameObject);
+        }
+    }
+
+    /// <summary>把一个列表渲染进容器；柜台物品在名称后附估价。</summary>
+    void BuildItemButtons(List<ItemInstance> items, Transform container, bool showOffer)
+    {
+        if (container == null || itemButtonPrefab == null)
+        {
+            Debug.LogWarning($"[拖拽] 无法建按钮: container空={container == null}, prefab空={itemButtonPrefab == null}");
+            return;
+        }
+
+        foreach (var item in items)
+        {
+            var btnObj = Instantiate(itemButtonPrefab, container);
+            if (!btnObj.activeSelf) btnObj.SetActive(true);   // 模板源被隐藏，克隆体需激活
             var btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
-            if (btnText != null) btnText.text = item.itemName;
+            if (btnText != null)
+                btnText.text = showOffer ? $"{item.itemName}  估价:{item.appraisedOffer:F0}" : item.itemName;
 
             var btn = btnObj.GetComponent<Button>();
-            btn.onClick.AddListener(() => manager.SelectItem(index));
+            if (btn != null) btn.onClick.AddListener(() => manager.SelectItem(item));
+
+            var drag = btnObj.GetComponent<DraggableItemButton>();
+            if (drag == null)
+            {
+                drag = btnObj.AddComponent<DraggableItemButton>();
+            }
+            drag.item = item;
 
             itemButtons.Add(btnObj);
         }
+    }
+
+    void OnClientItemPlacementChangedHandler()
+    {
+        // 延迟到帧末刷新，避免拖拽结束回调作用在被销毁的按钮上
+        if (refreshCoroutine != null) StopCoroutine(refreshCoroutine);
+        refreshCoroutine = StartCoroutine(DeferredRefresh());
+    }
+
+    IEnumerator DeferredRefresh()
+    {
+        yield return null;
+        RefreshClientItems();
     }
 
     void ClearSelection()
