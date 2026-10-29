@@ -16,7 +16,7 @@ public class PawnDeskUI : MonoBehaviour
 
     [Header("玩家面板（声望/通缉，点开才显示）")]
     public GameObject playerPanel;      // 玩家面板：声望/通缉内容
-    public Button playerButton;         // 打开/关闭玩家面板的按钮
+    public Button playerButton;         // 打开玩家面板的按钮
     public TextMeshProUGUI reputationText;
     public TextMeshProUGUI wantedText;
 
@@ -27,23 +27,25 @@ public class PawnDeskUI : MonoBehaviour
     public TextMeshProUGUI clientInfoText;   // 可选：显示客户类型与预算（为空时追加到对白）
     public Image clientPortrait;
 
+
     [Header("物品面板")]
-    public GameObject itemsPanel;
+        public GameObject itemsPanel;
     public Transform itemsContainer;      // 「窗口」：客户物品初到时的落位（未估价）
-    public GameObject itemButtonPrefab;  // 含 Button + Text + Image
-    public TextMeshProUGUI selectedItemNameText;
-    public TextMeshProUGUI selectedItemDescText;
+    public GameObject itemPrefab;  // 含 Button + Text + Image
+
+    [Header("初始物品放置窗口")]
+    public GameObject windowPanel;
+    public Transform windowContainer;   // 「窗口」运行时在屏幕左侧自动生成的竖列容器（不依赖场景旧容器）
 
     [Header("柜台估价面板（客户物品自动估价）")]
+    public GameObject counterPanel;
     public Transform counterContainer;     // 「柜台」：拖到此处的物品自动估价；留空则运行时自动创建
     public TextMeshProUGUI counterCountText;   // 可选：显示 柜台估价物品数
-
-    Transform windowContainer;   // 「窗口」运行时在屏幕左侧自动生成的竖列容器（不依赖场景旧容器）
 
     [Header("货架面板")]
     public GameObject shelfPanel;
     public Transform shelfItemsContainer;
-    public GameObject shelfItemButtonPrefab;   // 可为空，为空时复用 itemButtonPrefab
+ //   public GameObject shelfItemPrefab;      //复用 itemPrefab
     public Button shelfOpenButton;
     public Button shelfCloseButton;
     public TextMeshProUGUI shelfCountText;     // 可选，显示 货架占用/容量
@@ -53,7 +55,6 @@ public class PawnDeskUI : MonoBehaviour
     public TextMeshProUGUI inspectionResultText;
     public TextMeshProUGUI offerText;
     public Button scanButton;
-    public Button aiScanButton;
     public GameObject scanGlitchEffect; // 扫描异常时的闪烁特效
 
     [Header("决策按钮")]
@@ -69,13 +70,10 @@ public class PawnDeskUI : MonoBehaviour
     [Header("通用 UI")]
     public GameObject toastPanel;
     public TextMeshProUGUI toastText;
-    public GameObject confirmDialogPanel;
     public TextMeshProUGUI confirmTitleText;
     public TextMeshProUGUI confirmContentText;
     public Button confirmYesButton;
     public Button confirmNoButton;
-    public GameObject aiMessagePanel;
-    public TextMeshProUGUI aiMessageText;
     public Button nextClientButton;
 
     // ============ 内部引用 ============
@@ -83,7 +81,6 @@ public class PawnDeskUI : MonoBehaviour
     List<GameObject> itemButtons = new List<GameObject>();
     List<GameObject> shelfButtons = new List<GameObject>();
     Coroutine toastCoroutine;
-    Coroutine aiMessageCoroutine;
     Coroutine refreshCoroutine;
 
     // ============ 生命周期 ============
@@ -116,7 +113,6 @@ public class PawnDeskUI : MonoBehaviour
     void BindButtons()
     {
         scanButton?.onClick.AddListener(() => OnScanClicked());
-        aiScanButton?.onClick.AddListener(() => OnAIScanClicked());
         buyButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Buy));
         sellButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Sell));
         rejectButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Reject));
@@ -136,7 +132,6 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnClientArrived += OnClientArrivedHandler;
         manager.OnItemSelected += OnItemSelectedHandler;
         manager.OnScanCompleted += OnScanCompletedHandler;
-        manager.OnDecisionMade += OnDecisionMadeHandler;
         manager.OnItemBought += OnItemBoughtHandler;
         manager.OnItemSold += OnItemSoldHandler;
         manager.OnClientItemPlacementChanged += OnClientItemPlacementChangedHandler;
@@ -148,10 +143,7 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnReputationChanged += OnReputationChangedHandler;
         GameEvents.OnWantedChanged += OnWantedChangedHandler;
         GameEvents.OnDayChanged += OnDayChangedHandler;
-        GameEvents.OnAIMessage += OnAIMessageHandler;
-        GameEvents.OnAICorruption += OnAICorruptionHandler;
         GameEvents.OnScannerJammed += OnScannerJammedHandler;
-        GameEvents.OnTicketTampered += OnTicketTamperedHandler;
         GameEvents.OnToastRequested += OnToastRequestedHandler;
         GameEvents.OnPlaySFX += OnPlaySFXHandler;
         GameEvents.OnScreenShake += OnScreenShakeHandler;
@@ -166,7 +158,6 @@ public class PawnDeskUI : MonoBehaviour
         manager.OnClientArrived -= OnClientArrivedHandler;
         manager.OnItemSelected -= OnItemSelectedHandler;
         manager.OnScanCompleted -= OnScanCompletedHandler;
-        manager.OnDecisionMade -= OnDecisionMadeHandler;
         manager.OnItemBought -= OnItemBoughtHandler;
         manager.OnItemSold -= OnItemSoldHandler;
         manager.OnClientItemPlacementChanged -= OnClientItemPlacementChangedHandler;
@@ -177,10 +168,7 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnReputationChanged -= OnReputationChangedHandler;
         GameEvents.OnWantedChanged -= OnWantedChangedHandler;
         GameEvents.OnDayChanged -= OnDayChangedHandler;
-        GameEvents.OnAIMessage -= OnAIMessageHandler;
-        GameEvents.OnAICorruption -= OnAICorruptionHandler;
         GameEvents.OnScannerJammed -= OnScannerJammedHandler;
-        GameEvents.OnTicketTampered -= OnTicketTamperedHandler;
         GameEvents.OnToastRequested -= OnToastRequestedHandler;
         GameEvents.OnPlaySFX -= OnPlaySFXHandler;
         GameEvents.OnScreenShake -= OnScreenShakeHandler;
@@ -192,11 +180,6 @@ public class PawnDeskUI : MonoBehaviour
     void OnScanClicked()
     {
         manager.ScanSelectedItem();
-    }
-
-    void OnAIScanClicked()
-    {
-        manager.ScanForAI();
     }
 
     void OnDecisionClicked(PawnDeskManager.DecisionType type)
@@ -245,17 +228,11 @@ public class PawnDeskUI : MonoBehaviour
 
     void OnItemSelectedHandler(ItemInstance item)
     {
-        selectedItemNameText.text = item.itemName;
         inspectionPanel.SetActive(false);
 
         // 按归属与放置区域切换按钮：客户物品需放到柜台（已自动估价）才可收购
         bool isCustomerItem = item.owner == ItemInstance.ItemOwnership.Customer;
         bool onCounter = isCustomerItem && item.placement == ItemInstance.ItemPlacement.Counter;
-
-        if (isCustomerItem && !onCounter)
-            selectedItemDescText.text = "「窗口」中的物品尚未估价。\n把它拖到柜台，会自动估价。";
-        else
-            selectedItemDescText.text = item.description;
 
         buyButton?.gameObject.SetActive(onCounter);
         sellButton?.gameObject.SetActive(!isCustomerItem);
@@ -294,11 +271,6 @@ public class PawnDeskUI : MonoBehaviour
         buyButton?.gameObject.SetActive(onCounter);
         sellButton?.gameObject.SetActive(!isCustomerItem);
         rejectButton?.gameObject.SetActive(true);
-    }
-
-    void OnDecisionMadeHandler(string msg)
-    {
-        Debug.Log($"[决策] {msg}");
     }
 
     void OnItemBoughtHandler(ItemInstance item)
@@ -348,27 +320,10 @@ public class PawnDeskUI : MonoBehaviour
         dayText.text = $"第 {day} 天";
     }
 
-    void OnAIMessageHandler(string msg)
-    {
-        if (aiMessageCoroutine != null) StopCoroutine(aiMessageCoroutine);
-        aiMessageCoroutine = StartCoroutine(ShowAIMessageRoutine(msg));
-    }
-
-    void OnAICorruptionHandler(ItemInstance item, string desc)
-    {
-        ShowToast($"⚠ 腐蚀警告: {desc}", "error", 4f);
-        StartCoroutine(FlashText(fundsText, Color.magenta, 1f));
-    }
-
     void OnScannerJammedHandler()
     {
         ShowToast("⚠ 扫描仪被干扰卡死！", "error", 3f);
         StartCoroutine(FlashPanel(inspectionPanel, Color.red, 0.5f));
-    }
-
-    void OnTicketTamperedHandler(ItemInstance item)
-    {
-        ShowToast($"⚠ 当票被篡改: {item.itemName}", "error", 4f);
     }
 
     void OnToastRequestedHandler(string message, string type, float duration)
@@ -410,7 +365,7 @@ public class PawnDeskUI : MonoBehaviour
 
         if (items != null)
         {
-            var prefab = shelfItemButtonPrefab != null ? shelfItemButtonPrefab : itemButtonPrefab;
+            var prefab = itemPrefab;
             for (int i = 0; i < items.Count && prefab != null; i++)
             {
                 int index = i;
@@ -452,8 +407,6 @@ public class PawnDeskUI : MonoBehaviour
         // 默认隐藏，点开才显示
         playerPanel.SetActive(false);
         playerButton.onClick.AddListener(TogglePlayerPanel);
-        // 关键：按钮始终置于最上层（Canvas 最后子物体），避免面板打开时盖住按钮导致无法再点关闭
-        if (playerButton != null) playerButton.transform.SetAsLastSibling();
     }
 
     /// <summary>点开/关闭玩家面板；打开时刷新数值。</summary>
@@ -730,15 +683,15 @@ public class PawnDeskUI : MonoBehaviour
     /// <summary>把一个列表渲染进容器；柜台物品在名称后附估价。</summary>
     void BuildItemButtons(List<ItemInstance> items, Transform container, bool showOffer)
     {
-        if (container == null || itemButtonPrefab == null)
+        if (container == null || itemPrefab == null)
         {
-            Debug.LogWarning($"[拖拽] 无法建按钮: container空={container == null}, prefab空={itemButtonPrefab == null}");
+            Debug.LogWarning($"[拖拽] 无法建按钮: container空={container == null}, prefab空={itemPrefab == null}");
             return;
         }
 
         foreach (var item in items)
         {
-            var btnObj = Instantiate(itemButtonPrefab, container);
+            var btnObj = Instantiate(itemPrefab, container);
             if (!btnObj.activeSelf) btnObj.SetActive(true);   // 模板源被隐藏，克隆体需激活
             var btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
             if (btnText != null)
@@ -775,17 +728,6 @@ public class PawnDeskUI : MonoBehaviour
     {
         // 客户无待售物品时给引导：只买/既买又卖 → 采购引导；其余 → 普通占位
         var client = manager?.currentClient;
-        bool noBrought = client == null || !client.BringsItems;
-        if (noBrought && client != null && client.CanBuy)
-        {
-            selectedItemNameText.text = "客户想购买商品";
-            selectedItemDescText.text = "请打开货架，选择要出售的物品";
-        }
-        else
-        {
-            selectedItemNameText.text = "未选择物品";
-            selectedItemDescText.text = "";
-        }
     }
 
     void ShowDayReport()
@@ -803,12 +745,9 @@ public class PawnDeskUI : MonoBehaviour
 
     void HideAllPanels()
     {
-        //aiDialoguePanel?.SetActive(false);
         dayReportPanel?.SetActive(false);
-        confirmDialogPanel?.SetActive(false);
         toastPanel?.SetActive(false);
         shelfPanel?.SetActive(false);
-//        aiMessagePanel?.SetActive(false);
     }
 
     // ============ Toast ============
@@ -834,16 +773,6 @@ public class PawnDeskUI : MonoBehaviour
     {
         yield return new WaitForSeconds(delay);
         toastPanel.SetActive(false);
-    }
-
-    // ============ AI 消息飘字 ============
-
-    IEnumerator ShowAIMessageRoutine(string msg)
-    {
-        aiMessagePanel.SetActive(true);
-        aiMessageText.text = msg;
-        yield return new WaitForSeconds(3f);
-        aiMessagePanel.SetActive(false);
     }
 
     // ============ 视觉特效协程 ============

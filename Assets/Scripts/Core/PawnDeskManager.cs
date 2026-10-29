@@ -17,7 +17,6 @@ public class PawnDeskManager : MonoBehaviour
     public float startingFunds = 5000f;
     public float maxSpiritEnergy = 100f;      // 灵能（玩家修为，扫描鉴定与AI检测共用）
     public float scanSpiritCost = 10f;        // 普通扫描鉴定的灵能消耗
-    public float aiScanSpiritCost = 15f;      // AI检测的灵能消耗（比普通扫描高）
     public int counterCapacity = 24;          // 柜台货架格子数
 
     // ============ 运行时子系统 ============
@@ -310,42 +309,6 @@ public class PawnDeskManager : MonoBehaviour
         return lastReport;
     }
 
-    public AIDetectionResult ScanForAI()
-    {
-        if (selectedItem == null) return null;
-
-        var detector = GetComponent<AIDetectionTool>();
-        if (detector == null)
-        {
-            Debug.LogError("AIDetectionTool 未找到");
-            return null;
-        }
-
-        if (spiritEnergy < aiScanSpiritCost)
-        {
-            OnDecisionMade?.Invoke("灵能不足，无法进行AI检测！");
-            GameEvents.SafeInvoke(GameEvents.OnToastRequested, "灵能不足，无法进行AI检测！", "warning", 2f);
-            return null;
-        }
-
-        var result = detector.ScanForAI(selectedItem, this);
-        if (result != null && result.success && result.found)
-        {
-            OnAIDetected?.Invoke(result.message);
-            GameEvents.SafeInvoke(GameEvents.OnAIMessage, result.message);
-        }
-        else if (result != null && result.success && !result.found)
-        {
-            GameEvents.SafeInvoke(GameEvents.OnAIMessage, "AI扫描完成，未发现寄生意识。");
-        }
-
-        // 扣除AI检测消耗的灵能（比普通扫描更高，由 manager 统一扣除一次）
-        spiritEnergy = Mathf.Max(0f, spiritEnergy - aiScanSpiritCost);
-        OnSpiritEnergyChanged?.Invoke();
-        GameEvents.SafeInvoke(GameEvents.OnToastRequested, $"灵能剩余: {spiritEnergy:F0}", "info", 1.5f);
-        return result;
-    }
-
     // ============ 决策（买 / 卖 / 拒绝） ============
 
     public enum DecisionType { Buy, Sell, Reject }
@@ -430,46 +393,6 @@ public class PawnDeskManager : MonoBehaviour
         lastReport = null;
         lastOffer = 0;
         return "已拒绝交易。";
-    }
-
-    // ============ AI 决策回调 ============
-
-    public void OnAIFree()
-    {
-        if (selectedItem?.aiParasite == null) return;
-
-        selectedItem.aiParasite.trustTowardPlayer += 30;
-        gameState.reputation += 5;
-        gameState.globalFlags.Add("Freed_" + selectedItem.aiParasite.aiName);
-
-        GameEvents.SafeInvoke(GameEvents.OnReputationChanged, gameState.reputation, 5f);
-        GameEvents.SafeInvoke(GameEvents.OnGlobalFlagChanged, "Freed_" + selectedItem.aiParasite.aiName, true);
-        GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "ai_release", 0.7f);
-
-        OnDecisionMade?.Invoke($"你摧毁了物品，释放了AI '{selectedItem.aiParasite.aiName}'。它在消散前说：'谢谢你，陌生人。'");
-        selectedItem = null;
-    }
-
-    public void OnAIIntegrate()
-    {
-        if (selectedItem?.aiParasite == null) return;
-
-        float successChance = 0.7f - (selectedItem.aiParasite.aggression * 0.05f);
-        if (Random.value < successChance)
-        {
-            gameState.globalFlags.Add("AI_Integrated");
-            GameEvents.SafeInvoke(GameEvents.OnGlobalFlagChanged, "AI_Integrated", true);
-            GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "ai_merge_success", 1f);
-            OnDecisionMade?.Invoke("融合成功！你获得了AI的部分能力。（扫描精度+20%，估值直觉解锁）");
-        }
-        else
-        {
-            gameState.wantedLevel += 20;
-            GameEvents.SafeInvoke(GameEvents.OnWantedChanged, gameState.wantedLevel, 20f);
-            GameEvents.SafeInvoke(GameEvents.OnScreenShake, 0.5f, 1f);
-            OnDecisionMade?.Invoke("融合失败！AI试图夺取你的意识控制权！（通缉值+20）");
-        }
-        selectedItem = null;
     }
 
     // ============ 查询 ============
