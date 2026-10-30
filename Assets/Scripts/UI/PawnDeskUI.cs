@@ -29,17 +29,17 @@ public class PawnDeskUI : MonoBehaviour
 
 
     [Header("物品面板")]
-        public GameObject itemsPanel;
+    //public GameObject itemsPanel;
     public Transform itemsContainer;      // 「窗口」：客户物品初到时的落位（未估价）
-    public GameObject itemPrefab;  // 含 Button + Text + Image
+    public GameObject itemButtonPrefab;  // 含 Button + Text + Image
 
     [Header("初始物品放置窗口")]
     public GameObject windowPanel;
-    public Transform windowContainer;   // 「窗口」运行时在屏幕左侧自动生成的竖列容器（不依赖场景旧容器）
+    public Transform windowContainer;     // 窗口容器 = 场景 WindowPanel 的 transform（未挂接时由 windowPanel 兜底）
 
     [Header("柜台估价面板（客户物品自动估价）")]
     public GameObject counterPanel;
-    public Transform counterContainer;     // 「柜台」：拖到此处的物品自动估价；留空则运行时自动创建
+    public Transform counterContainer;     // 「柜台」：场景 CounterPanel 的 transform；未挂接时由 counterPanel 兜底
     public TextMeshProUGUI counterCountText;   // 可选：显示 柜台估价物品数
 
     [Header("货架面板")]
@@ -93,7 +93,7 @@ public class PawnDeskUI : MonoBehaviour
         EnsurePlayerPanel();   // 玩家面板：把声望/通缉移入默认隐藏的面板，点开才显示
         RefreshTopBar();
         HideAllPanels();
-        EnsureContainers();      // 确保 窗口/柜台 两个放置区域与拖拽回调
+        EnsureContainers();    // 确保 窗口/柜台 两个放置区域与拖拽回调
         RefreshShelfItems();   // 预刷新货架占用/列表
         RefreshClientItems();  // 预刷新客户窗口/柜台物品
 
@@ -365,7 +365,7 @@ public class PawnDeskUI : MonoBehaviour
 
         if (items != null)
         {
-            var prefab = itemPrefab;
+            var prefab = itemButtonPrefab;
             for (int i = 0; i < items.Count && prefab != null; i++)
             {
                 int index = i;
@@ -436,21 +436,33 @@ public class PawnDeskUI : MonoBehaviour
 
     // ============ 客户物品渲染（窗口 ⇄ 柜台） ============
 
-    /// <summary>确保 窗口/柜台 两个放置区域存在，并注册拖拽回调。</summary>
+    /// <summary>窗口/柜台使用场景已挂接的面板，不代码创建容器；注册拖拽回调。</summary>
     void EnsureContainers()
     {
-        // 窗口：屏幕左侧自动生成竖列容器（按用户选择，不依赖场景旧容器）
-        if (windowContainer == null)
-            windowContainer = CreateWindowContainer();
-        itemsContainer = windowContainer;
+        // 方案B：窗口与柜台依赖场景已有的 WindowPanel / CounterPanel，不用代码自动创建。
+        // 优先用显式挂接的 windowContainer / counterContainer，其次用 windowPanel / counterPanel 面板。
+        Transform windowT = windowContainer != null ? windowContainer
+                          : (windowPanel != null ? windowPanel.transform : null);
+        Transform counterT = counterContainer != null ? counterContainer
+                          : (counterPanel != null ? counterPanel.transform : null);
 
-        // 柜台：场景中未指定则在物品面板旁自动创建；否则确保其带 DropZone
-        if (counterContainer == null)
-            counterContainer = CreateCounterContainer();
+        // 统一窗口/柜台容器引用（BuildItemButtons、RefreshClientItems 使用 itemsContainer/counterContainer）
+        itemsContainer = windowT;
+        counterContainer = counterT;
 
-        SetupWindowContainerLayout();   // 确保窗口容器有纵向布局，按钮才能排布可见
+        if (itemsContainer == null || counterContainer == null)
+        {
+            Debug.LogWarning("[PawnDeskUI] windowContainer/counterContainer（或 windowPanel/counterPanel）未在场景挂接，客户物品将无法显示。");
+            return;
+        }
+
         AddDropZone(itemsContainer, ItemInstance.ItemPlacement.Window);
         AddDropZone(counterContainer, ItemInstance.ItemPlacement.Counter);
+
+        // 物品按钮自动横向排列：窗口/柜台面板缺 HorizontalLayoutGroup 时自动补上，
+        // 布局组会覆盖子物体自身偏移，强制从左到右横排。
+        EnsureHorizontalLayout(itemsContainer);
+        EnsureHorizontalLayout(counterContainer);
 
         // 注册拖放回调：由 manager 决定去柜台 / 回窗口
         CounterDrag.RequestMove = (item, target) =>
@@ -464,105 +476,29 @@ public class PawnDeskUI : MonoBehaviour
         };
     }
 
-    /// <summary>运行时在屏幕左侧自动创建窗口容器（与右侧柜台对称）。用户可在场景中自行接线更美观的布局。</summary>
-    Transform CreateWindowContainer()
+    /// <summary>确保容器具备横向布局：缺 HorizontalLayoutGroup 时自动添加，并补 ContentSizeFitter 按内容撑宽。</summary>
+    void EnsureHorizontalLayout(Transform panel)
     {
-        var parent = itemsPanel != null ? itemsPanel.transform.parent : transform;
-        var go = new GameObject("WindowContainer", typeof(RectTransform));
-        go.transform.SetParent(parent, false);
+        if (panel == null) return;
 
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = new Vector2(0f, 0f);
-        rt.anchorMax = new Vector2(0f, 1f);
-        rt.pivot = new Vector2(0f, 0.5f);
-        rt.anchoredPosition = new Vector2(10f, 0f);
-        rt.sizeDelta = new Vector2(240f, 0f);
-
-        if (go.GetComponent<CanvasRenderer>() == null) go.AddComponent<CanvasRenderer>();
-        var bg = go.AddComponent<Image>();
-        bg.color = new Color(0.7f, 0.8f, 0.95f, 0.18f);
-
-        var lg = go.AddComponent<VerticalLayoutGroup>();
-        lg.padding = new RectOffset(6, 6, 6, 6);
-        lg.spacing = 4f;
-        lg.childForceExpandHeight = false;
-        lg.childForceExpandWidth = true;
-        lg.childControlWidth = true;
-        lg.childControlHeight = false;
-
-        // 标题
-        var titleGo = new GameObject("WindowTitle", typeof(RectTransform));
-        titleGo.transform.SetParent(go.transform, false);
-        titleGo.AddComponent<CanvasRenderer>();
-        var title = titleGo.AddComponent<TextMeshProUGUI>();
-        title.text = "窗口物品";
-        title.fontSize = 22;
-        title.color = Color.white;
-        title.raycastTarget = false;
-        var f = ResolveFont();
-        if (f != null) title.font = f;
-
-        // 提示
-        var tipGo = new GameObject("WindowTip", typeof(RectTransform));
-        tipGo.transform.SetParent(go.transform, false);
-        tipGo.AddComponent<CanvasRenderer>();
-        var tip = tipGo.AddComponent<TextMeshProUGUI>();
-        tip.text = "顾客带来的物品\n拖到柜台估价";
-        tip.fontSize = 16;
-        tip.color = new Color(1f, 1f, 1f, 0.7f);
-        tip.raycastTarget = false;
-        if (f != null) tip.font = f;
-
-        return go.transform;
-    }
-
-    /// <summary>借用场景里任意已有 TMP 文本的字体，确保代码创建的文本能正常渲染中文。</summary>
-    TMP_FontAsset ResolveFont()
-    {
-        foreach (var t in FindObjectsOfType<TextMeshProUGUI>())
-            if (t != null && t.font != null)
-                return t.font;
-        return null;
-    }
-
-    /// <summary>确保窗口容器有纵向布局，让物品按钮在可见区域内依次排列。</summary>
-    void SetupWindowContainerLayout()
-    {
-        if (itemsContainer == null) return;
-
-        if (itemsContainer.GetComponent<VerticalLayoutGroup>() == null)
+        if (panel.GetComponent<HorizontalLayoutGroup>() == null)
         {
-            var lg = itemsContainer.gameObject.AddComponent<VerticalLayoutGroup>();
-            lg.padding = new RectOffset(4, 4, 4, 4);
-            lg.spacing = 4f;
-            lg.childControlWidth = true;
-            lg.childForceExpandWidth = true;
-            lg.childControlHeight = true;
-            lg.childForceExpandHeight = false;
+            var hg = panel.gameObject.AddComponent<HorizontalLayoutGroup>();
+            hg.padding = new RectOffset(4, 4, 4, 4);
+            hg.spacing = 8f;
+            hg.childAlignment = TextAnchor.UpperLeft;
+            hg.childControlWidth = true;
+            hg.childForceExpandWidth = false;
+            hg.childControlHeight = true;
+            hg.childForceExpandHeight = false;
         }
-    }
 
-    /// <summary>按子物体偏好高度撑开窗口容器（ScrollRect 内容），保证按钮都落在可视区内。</summary>
-    void FitWindowContainerHeight()
-    {
-        if (itemsContainer == null) return;
-        var rt = itemsContainer as RectTransform;
-        if (rt == null) return;
-
-        LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
-        float h = 0f;
-        for (int i = 0; i < rt.childCount; i++)
+        if (panel.GetComponent<ContentSizeFitter>() == null)
         {
-            var child = rt.GetChild(i) as RectTransform;
-            if (child == null) continue;
-            float childH = LayoutUtility.GetPreferredSize(child, 1); // 1 = 垂直轴
-            if (childH <= 0f) childH = child.rect.height;            // 兜底：用实际矩形高度
-            h += childH;
+            var fit = panel.gameObject.AddComponent<ContentSizeFitter>();
+            fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            fit.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
         }
-        var lg = rt.GetComponent<VerticalLayoutGroup>();
-        if (lg != null && rt.childCount > 1)
-            h += lg.spacing * (rt.childCount - 1);
-        rt.sizeDelta = new Vector2(rt.sizeDelta.x, Mathf.Max(h, 0f));
     }
 
     void AddDropZone(Transform zone, ItemInstance.ItemPlacement target)
@@ -583,58 +519,6 @@ public class PawnDeskUI : MonoBehaviour
         dz.targetPlacement = target;
     }
 
-    /// <summary>运行时自动创建一个柜台容器（右侧竖列）。用户可在场景中自行接线更美观的布局。</summary>
-    Transform CreateCounterContainer()
-    {
-        var parent = itemsPanel != null ? itemsPanel.transform.parent : transform;
-        var go = new GameObject("CounterContainer", typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = new Vector2(1f, 0f);
-        rt.anchorMax = new Vector2(1f, 1f);
-        rt.pivot = new Vector2(1f, 0.5f);
-        rt.anchoredPosition = new Vector2(-10f, 0f);
-        rt.sizeDelta = new Vector2(220f, 0f);
-
-        if (go.GetComponent<CanvasRenderer>() == null) go.AddComponent<CanvasRenderer>();
-        var bg = go.AddComponent<Image>();
-        bg.color = new Color(0.85f, 0.75f, 0.55f, 0.18f);
-
-        var lg = go.AddComponent<VerticalLayoutGroup>();
-        lg.padding = new RectOffset(6, 6, 6, 6);
-        lg.spacing = 4f;
-        lg.childForceExpandHeight = false;
-        lg.childForceExpandWidth = true;
-        lg.childControlWidth = true;
-        lg.childControlHeight = false;
-
-        // 标题
-        var titleGo = new GameObject("CounterTitle", typeof(RectTransform));
-        titleGo.transform.SetParent(go.transform, false);
-        titleGo.AddComponent<CanvasRenderer>();
-        var title = titleGo.AddComponent<TextMeshProUGUI>();
-        title.text = "柜台估价";
-        title.fontSize = 22;
-        title.color = Color.yellow;
-        title.raycastTarget = false;
-        var f = ResolveFont();
-        if (f != null) title.font = f;
-
-        // 占位提示
-        var tipGo = new GameObject("CounterTip", typeof(RectTransform));
-        tipGo.transform.SetParent(go.transform, false);
-        tipGo.AddComponent<CanvasRenderer>();
-        var tip = tipGo.AddComponent<TextMeshProUGUI>();
-        tip.text = "把客户物品拖到这里\n自动估价";
-        tip.fontSize = 16;
-        tip.color = new Color(1f, 1f, 1f, 0.7f);
-        tip.raycastTarget = false;
-        if (f != null) tip.font = f;
-
-        return go.transform;
-    }
-
     /// <summary>刷新客户窗口与柜台两个列表。</summary>
     void RefreshClientItems()
     {
@@ -643,10 +527,9 @@ public class PawnDeskUI : MonoBehaviour
             if (go != null) Destroy(go);
         itemButtons.Clear();
 
-        // 2) 清空两个容器里的所有子物体，剔除场景遗留的模板按钮/未被跟踪的旧按钮；
-        //    只保留运行时自动生成的标题与提示（按名字豁免）。
-        ClearAllChildren(itemsContainer, "WindowTitle", "WindowTip");
-        ClearAllChildren(counterContainer, "CounterTitle", "CounterTip");
+        // 2) 清空两个容器里的所有子物体（场景面板由 VerticalLayoutGroup/ContentSizeFitter 自动排布）
+        ClearAllChildren(itemsContainer);
+        ClearAllChildren(counterContainer);
 
         if (manager == null || manager.currentClient == null)
         {
@@ -658,8 +541,6 @@ public class PawnDeskUI : MonoBehaviour
 
         // 柜台（自动估价）
         BuildItemButtons(manager.GetClientCounterItems(), counterContainer, true);
-
-        FitWindowContainerHeight();   // 撑开窗口容器高度，确保按钮在可视区内
 
         if (counterCountText != null)
             counterCountText.text = $"柜台估价: {manager.GetClientCounterCount()}";
@@ -680,25 +561,34 @@ public class PawnDeskUI : MonoBehaviour
         }
     }
 
-    /// <summary>把一个列表渲染进容器；柜台物品在名称后附估价。</summary>
+    /// <summary>把一个列表渲染进容器；优先用 ItemPrefab 渲染，未挂 ItemPrefab 时兜底按“文本+Button”处理。</summary>
     void BuildItemButtons(List<ItemInstance> items, Transform container, bool showOffer)
     {
-        if (container == null || itemPrefab == null)
+        if (container == null || itemButtonPrefab == null)
         {
-            Debug.LogWarning($"[拖拽] 无法建按钮: container空={container == null}, prefab空={itemPrefab == null}");
+            Debug.LogWarning($"[物品] 无法生成物品按钮: container空={container == null}, prefab空={itemButtonPrefab == null}");
             return;
         }
 
         foreach (var item in items)
         {
-            var btnObj = Instantiate(itemPrefab, container);
+            var btnObj = Instantiate(itemButtonPrefab, container);
             if (!btnObj.activeSelf) btnObj.SetActive(true);   // 模板源被隐藏，克隆体需激活
-            var btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
-            if (btnText != null)
-                btnText.text = showOffer ? $"{item.itemName}  估价:{item.appraisedOffer:F0}" : item.itemName;
 
-            var btn = btnObj.GetComponent<Button>();
-            if (btn != null) btn.onClick.AddListener(() => manager.SelectItem(item));
+            var itemPfb = btnObj.GetComponent<ItemPrefab>();
+            if (itemPfb != null)
+            {
+                itemPfb.Init(item, showOffer);
+            }
+            else
+            {
+                // 兜底：预制体未挂 ItemPrefab 时，沿用“文本 + Button”旧逻辑
+                var btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
+                if (btnText != null)
+                    btnText.text = showOffer ? $"{item.itemName}  估价:{item.appraisedOffer:F0}" : item.itemName;
+                var btn = btnObj.GetComponent<Button>();
+                if (btn != null) btn.onClick.AddListener(() => manager.SelectItem(item));
+            }
 
             var drag = btnObj.GetComponent<DraggableItemButton>();
             if (drag == null)
