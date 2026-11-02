@@ -32,14 +32,15 @@ public class ItemInstance
     public enum ItemOwnership { None, Customer, Merchant }
     public ItemOwnership owner = ItemOwnership.None;   // 客户带来=Customer；被商栈收购=Merchant
 
-    // ============ 放置区域（窗口 / 柜台） ============
+    // ============ 放置区域（窗口 / 柜台 / 货架） ============
     /// <summary>
-    /// 客户携带物品的放置区域：
-    ///   窗口(Window) = 顾客刚到时物品的落位，尚未估价；
-    ///   柜台(Counter) = 玩家拖到柜台后，自动估价（appraisedOffer 生效）。
-    /// 归属非 Customer 的物品（货架库存）不参与本字段。
+    /// 物品可放置的区域：
+    ///   窗口(Window)  = 顾客刚到时物品的落位，尚未估价；
+    ///   柜台(Counter) = 玩家拖到柜台后，自动估价（appraisedOffer 生效）；
+    ///   货架(Shelf)   = 玩家（Merchant）自有库存的放置面板。
+    /// 归属校验：玩家(Merchant)物品只能落到 柜台/货架；客户(Customer)物品只能落到 窗口/柜台。
     /// </summary>
-    public enum ItemPlacement { Window, Counter }
+    public enum ItemPlacement { Window, Counter, Shelf }
     public ItemPlacement placement = ItemPlacement.Window;
 
     /// <summary>放上柜台后自动估价的结果（信用点）；未估价或放回窗口时为 0。</summary>

@@ -17,6 +17,7 @@ public class PawnDeskUI : MonoBehaviour
     [Header("玩家面板（声望/通缉，点开才显示）")]
     public GameObject playerPanel;      // 玩家面板：声望/通缉内容
     public Button playerButton;         // 打开玩家面板的按钮
+    public Button playerPanelCloseButton; // 角色面板右上角 X 关闭按钮
     public TextMeshProUGUI reputationText;
     public TextMeshProUGUI wantedText;
 
@@ -33,6 +34,8 @@ public class PawnDeskUI : MonoBehaviour
     public Transform itemsContainer;      // 「窗口」：客户物品初到时的落位（未估价）
     public GameObject itemButtonPrefab;  // 含 Button + Text + Image
 
+    public Color emptySlotColor = new Color(0.08f, 0.08f, 0.12f, 0.35f); // 空槽底色（网格参数由场景 GridLayoutGroup 控制）
+
     [Header("初始物品放置窗口")]
     public GameObject windowPanel;
     public Transform windowContainer;     // 窗口容器 = 场景 WindowPanel 的 transform（未挂接时由 windowPanel 兜底）
@@ -45,10 +48,7 @@ public class PawnDeskUI : MonoBehaviour
     [Header("货架面板")]
     public GameObject shelfPanel;
     public Transform shelfItemsContainer;
- //   public GameObject shelfItemPrefab;      //复用 itemPrefab
-    public Button shelfOpenButton;
-    public Button shelfCloseButton;
-    public TextMeshProUGUI shelfCountText;     // 可选，显示 货架占用/容量
+    //public TextMeshProUGUI shelfCountText;     // 可选，显示 货架占用/容量
 
     [Header("扫描/鉴定面板")]
     public GameObject inspectionPanel;
@@ -78,10 +78,13 @@ public class PawnDeskUI : MonoBehaviour
 
     // ============ 内部引用 ============
     PawnDeskManager manager;
-    List<GameObject> itemButtons = new List<GameObject>();
     List<GameObject> shelfButtons = new List<GameObject>();
     Coroutine toastCoroutine;
     Coroutine refreshCoroutine;
+
+    // 客户到店时的物品快照：作为固定槽位基准（下标即槽位号）。
+    // 移动/收购不改变槽位 → 物品只更新对应槽内容，其余槽原地不动（不补位）。
+    List<ItemInstance> clientSlots = new List<ItemInstance>();
 
     // ============ 生命周期 ============
     void Start()
@@ -118,9 +121,6 @@ public class PawnDeskUI : MonoBehaviour
         rejectButton?.onClick.AddListener(() => OnDecisionClicked(PawnDeskManager.DecisionType.Reject));
         nextDayButton?.onClick.AddListener(() => { dayReportPanel.SetActive(false); manager.AdvanceToNextDay(); });
         nextClientButton?.onClick.AddListener(() => OnNextClientClicked());
-
-        shelfOpenButton?.onClick.AddListener(OpenShelf);
-        shelfCloseButton?.onClick.AddListener(CloseShelf);
     }
 
     void SubscribeEvents()
@@ -143,7 +143,6 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnReputationChanged += OnReputationChangedHandler;
         GameEvents.OnWantedChanged += OnWantedChangedHandler;
         GameEvents.OnDayChanged += OnDayChangedHandler;
-        GameEvents.OnScannerJammed += OnScannerJammedHandler;
         GameEvents.OnToastRequested += OnToastRequestedHandler;
         GameEvents.OnPlaySFX += OnPlaySFXHandler;
         GameEvents.OnScreenShake += OnScreenShakeHandler;
@@ -168,7 +167,6 @@ public class PawnDeskUI : MonoBehaviour
         GameEvents.OnReputationChanged -= OnReputationChangedHandler;
         GameEvents.OnWantedChanged -= OnWantedChangedHandler;
         GameEvents.OnDayChanged -= OnDayChangedHandler;
-        GameEvents.OnScannerJammed -= OnScannerJammedHandler;
         GameEvents.OnToastRequested -= OnToastRequestedHandler;
         GameEvents.OnPlaySFX -= OnPlaySFXHandler;
         GameEvents.OnScreenShake -= OnScreenShakeHandler;
@@ -204,6 +202,10 @@ public class PawnDeskUI : MonoBehaviour
 
     void OnClientArrivedHandler(ClientProfile client)
     {
+        // 客户到店：按携带物品数快照固定槽位（后续移动/收购不改变槽位数）
+        clientSlots.Clear();
+        if (client != null) clientSlots.AddRange(client.broughtItems);
+
         clientDialogueText.text = client.dialogueText;
         clientPanel.SetActive(true);
 
@@ -320,12 +322,6 @@ public class PawnDeskUI : MonoBehaviour
         dayText.text = $"第 {day} 天";
     }
 
-    void OnScannerJammedHandler()
-    {
-        ShowToast("⚠ 扫描仪被干扰卡死！", "error", 3f);
-        StartCoroutine(FlashPanel(inspectionPanel, Color.red, 0.5f));
-    }
-
     void OnToastRequestedHandler(string message, string type, float duration)
     {
         ShowToast(message, type, duration);
@@ -342,18 +338,6 @@ public class PawnDeskUI : MonoBehaviour
     }
 
     // ============ 货架面板（卖流程：选择库存物品） ============
-
-    void OpenShelf()
-    {
-        RefreshShelfItems();
-        shelfPanel?.SetActive(true);
-    }
-
-    void CloseShelf()
-    {
-        shelfPanel?.SetActive(false);
-    }
-
     void RefreshShelfItems()
     {
         foreach (var btn in shelfButtons)
@@ -376,19 +360,21 @@ public class PawnDeskUI : MonoBehaviour
                 var btn = btnObj.GetComponent<Button>();
                 if (btn != null)
                     btn.onClick.AddListener(() => OnShelfItemClicked(index));
+
+                // 玩家(Merchant)库存物品同样可拖拽，归属校验只允许其落到 柜台/货架。
+                var drag = btnObj.GetComponent<DraggableItemButton>();
+                if (drag == null) drag = btnObj.AddComponent<DraggableItemButton>();
+                drag.item = item;
+
                 shelfButtons.Add(btnObj);
             }
         }
-
-        if (shelfCountText != null)
-            shelfCountText.text = $"货架: {items?.Count ?? 0}/{capacity}";
     }
 
     void OnShelfItemClicked(int index)
     {
         manager.SelectStockItem(index);
         ShowToast("已选中待售物品，点击「卖」成交", "info", 1.5f);
-        CloseShelf();
     }
 
     void OnInventoryChangedHandler(string inventoryID)
@@ -407,6 +393,15 @@ public class PawnDeskUI : MonoBehaviour
         // 默认隐藏，点开才显示
         playerPanel.SetActive(false);
         playerButton.onClick.AddListener(TogglePlayerPanel);
+        // 右上角 X 关闭按钮
+        if (playerPanelCloseButton != null)
+            playerPanelCloseButton.onClick.AddListener(ClosePlayerPanel);
+    }
+
+    /// <summary>X 关闭按钮：直接关闭角色面板。</summary>
+    void ClosePlayerPanel()
+    {
+        playerPanel.SetActive(false);
     }
 
     /// <summary>点开/关闭玩家面板；打开时刷新数值。</summary>
@@ -439,14 +434,15 @@ public class PawnDeskUI : MonoBehaviour
     /// <summary>窗口/柜台使用场景已挂接的面板，不代码创建容器；注册拖拽回调。</summary>
     void EnsureContainers()
     {
-        // 方案B：窗口与柜台依赖场景已有的 WindowPanel / CounterPanel，不用代码自动创建。
         // 优先用显式挂接的 windowContainer / counterContainer，其次用 windowPanel / counterPanel 面板。
         Transform windowT = windowContainer != null ? windowContainer
                           : (windowPanel != null ? windowPanel.transform : null);
         Transform counterT = counterContainer != null ? counterContainer
                           : (counterPanel != null ? counterPanel.transform : null);
+        Transform shelfT = shelfItemsContainer != null ? shelfItemsContainer
+                         : (shelfPanel != null ? shelfPanel.transform : null);
 
-        // 统一窗口/柜台容器引用（BuildItemButtons、RefreshClientItems 使用 itemsContainer/counterContainer）
+        // 统一窗口/柜台容器引用（RefreshClientItems 使用 itemsContainer/counterContainer）
         itemsContainer = windowT;
         counterContainer = counterT;
 
@@ -458,46 +454,49 @@ public class PawnDeskUI : MonoBehaviour
 
         AddDropZone(itemsContainer, ItemInstance.ItemPlacement.Window);
         AddDropZone(counterContainer, ItemInstance.ItemPlacement.Counter);
+        if (shelfT != null)
+            AddDropZone(shelfT, ItemInstance.ItemPlacement.Shelf);
 
-        // 物品按钮自动横向排列：窗口/柜台面板缺 HorizontalLayoutGroup 时自动补上，
-        // 布局组会覆盖子物体自身偏移，强制从左到右横排。
-        EnsureHorizontalLayout(itemsContainer);
-        EnsureHorizontalLayout(counterContainer);
-
-        // 注册拖放回调：由 manager 决定去柜台 / 回窗口
+        // 注册拖放回调：先按「归属 × 面板」做校验。
+        //   玩家(Merchant)物品只能落 柜台/货架；
+        //   客户(Customer)物品只能落 窗口/柜台；
+        //   落点在三块面板之外、或面板与归属不符时直接拒绝 → 物品回到拖动前位置（数据不变）。
         CounterDrag.RequestMove = (item, target) =>
         {
             if (manager == null || item == null) return false;
-            if (target == ItemInstance.ItemPlacement.Counter)
-                manager.PlaceItemOnCounter(item);
-            else
-                manager.MoveItemBackToWindow(item);
+            if (!CanDropTo(item, target))
+            {
+                GameEvents.SafeInvoke(GameEvents.OnToastRequested, "这里放不下该物品", "warning", 1.5f);
+                return false;
+            }
+
+            // 归属面板校验通过后执行对应移动：
+            //   客户物品：柜台=放上柜台自动估价；窗口=放回窗口撤销估价；
+            //   玩家物品：柜台/货架均为其归属面板，库存本就位于货架，保持原位即可（无需改 placement）。
+            if (item.owner == ItemInstance.ItemOwnership.Customer)
+            {
+                if (target == ItemInstance.ItemPlacement.Counter)
+                    manager.PlaceItemOnCounter(item);
+                else if (target == ItemInstance.ItemPlacement.Window)
+                    manager.MoveItemBackToWindow(item);
+            }
             return true;
         };
     }
 
-    /// <summary>确保容器具备横向布局：缺 HorizontalLayoutGroup 时自动添加，并补 ContentSizeFitter 按内容撑宽。</summary>
-    void EnsureHorizontalLayout(Transform panel)
+    /// <summary>归属 × 面板 校验：判定某归属的物品是否允许落到 target 面板。</summary>
+    bool CanDropTo(ItemInstance item, ItemInstance.ItemPlacement target)
     {
-        if (panel == null) return;
-
-        if (panel.GetComponent<HorizontalLayoutGroup>() == null)
+        switch (item.owner)
         {
-            var hg = panel.gameObject.AddComponent<HorizontalLayoutGroup>();
-            hg.padding = new RectOffset(4, 4, 4, 4);
-            hg.spacing = 8f;
-            hg.childAlignment = TextAnchor.UpperLeft;
-            hg.childControlWidth = true;
-            hg.childForceExpandWidth = false;
-            hg.childControlHeight = true;
-            hg.childForceExpandHeight = false;
-        }
-
-        if (panel.GetComponent<ContentSizeFitter>() == null)
-        {
-            var fit = panel.gameObject.AddComponent<ContentSizeFitter>();
-            fit.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
-            fit.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
+            case ItemInstance.ItemOwnership.Merchant:
+                return target == ItemInstance.ItemPlacement.Counter
+                    || target == ItemInstance.ItemPlacement.Shelf;
+            case ItemInstance.ItemOwnership.Customer:
+                return target == ItemInstance.ItemPlacement.Window
+                    || target == ItemInstance.ItemPlacement.Counter;
+            default:
+                return false;   // 无归属物品默认不可放置
         }
     }
 
@@ -519,86 +518,113 @@ public class PawnDeskUI : MonoBehaviour
         dz.targetPlacement = target;
     }
 
-    /// <summary>刷新客户窗口与柜台两个列表。</summary>
+    /// <summary>刷新客户窗口与柜台两个网格（固定槽位、按原始下标填充，移动后不补位）。</summary>
     void RefreshClientItems()
     {
-        // 1) 销毁跟踪的旧按钮（含拖拽期间被临时提升到根 Canvas 的）
-        foreach (var go in itemButtons)
-            if (go != null) Destroy(go);
-        itemButtons.Clear();
-
-        // 2) 清空两个容器里的所有子物体（场景面板由 VerticalLayoutGroup/ContentSizeFitter 自动排布）
+        // 清空两个网格容器（连同上次的格子与内容一并销毁）
         ClearAllChildren(itemsContainer);
         ClearAllChildren(counterContainer);
 
-        if (manager == null || manager.currentClient == null)
+        if (manager == null || manager.currentClient == null || clientSlots.Count == 0)
         {
             return;
         }
 
-        // 窗口（未估价）
-        BuildItemButtons(manager.GetClientWindowItems(), itemsContainer, false);
+        // 窗口网格：只填仍处于「窗口」的物品
+        BuildGrid(itemsContainer, ItemInstance.ItemPlacement.Window);
 
-        // 柜台（自动估价）
-        BuildItemButtons(manager.GetClientCounterItems(), counterContainer, true);
+        // 柜台网格：只填已拖到「柜台」的物品
+        BuildGrid(counterContainer, ItemInstance.ItemPlacement.Counter);
 
         if (counterCountText != null)
             counterCountText.text = $"柜台估价: {manager.GetClientCounterCount()}";
     }
 
-    /// <summary>销毁容器的全部子物体，可豁免指定名字的子物体（保留柜台标题/提示）。</summary>
-    void ClearAllChildren(Transform container, params string[] keepNames)
+    /// <summary>销毁容器的全部子物体。</summary>
+    void ClearAllChildren(Transform container)
     {
         if (container == null) return;
         for (int i = container.childCount - 1; i >= 0; i--)
         {
             var child = container.GetChild(i);
-            if (child == null) continue;
-            bool keep = false;
-            for (int k = 0; k < keepNames.Length; k++)
-                if (child.name == keepNames[k]) { keep = true; break; }
-            if (!keep) Destroy(child.gameObject);
+            if (child != null) Destroy(child.gameObject);
         }
     }
 
-    /// <summary>把一个列表渲染进容器；优先用 ItemPrefab 渲染，未挂 ItemPrefab 时兜底按“文本+Button”处理。</summary>
-    void BuildItemButtons(List<ItemInstance> items, Transform container, bool showOffer)
+    /// <summary>在容器里按 clientSlots 建一排固定格子，每格绑定原始下标；对应物品处于 target 区域时填入该格。</summary>
+    void BuildGrid(Transform panel, ItemInstance.ItemPlacement target)
     {
-        if (container == null || itemButtonPrefab == null)
+        if (panel == null) return;
+
+        var own = manager.currentClient.broughtItems;
+        bool showOffer = target == ItemInstance.ItemPlacement.Counter;
+
+        for (int i = 0; i < clientSlots.Count; i++)
         {
-            Debug.LogWarning($"[物品] 无法生成物品按钮: container空={container == null}, prefab空={itemButtonPrefab == null}");
+            GameObject cell = CreateSlotCell(panel, i);
+            var item = clientSlots[i];
+            bool filled = item != null && own.Contains(item) && item.placement == target;
+            if (filled)
+                FillSlot(cell.transform, item, showOffer);
+        }
+    }
+
+    /// <summary>创建一个空格（物品栏）：固定尺寸的槽位底（Image），不阻挡拖拽射线。</summary>
+    GameObject CreateSlotCell(Transform parent, int index)
+    {
+        var go = new GameObject($"Slot_{index}", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        go.AddComponent<CanvasRenderer>();
+        var img = go.AddComponent<Image>();
+        img.color = emptySlotColor;
+        img.raycastTarget = false;   // 让拖拽射线穿过，落到面板的 ItemDropZone
+        return go;
+    }
+
+    /// <summary>把物品按钮实例化进该格，并拉伸填满格子；优先走 ItemPrefab.Init。</summary>
+    void FillSlot(Transform cell, ItemInstance item, bool showOffer)
+    {
+        if (cell == null || itemButtonPrefab == null)
+        {
+            if (itemButtonPrefab == null)
+                Debug.LogWarning("[物品] itemButtonPrefab 未挂接，无法生成物品按钮。");
             return;
         }
 
-        foreach (var item in items)
+        var content = Instantiate(itemButtonPrefab, cell);
+        if (!content.activeSelf) content.SetActive(true);
+
+        // 拉伸填满格子（网格 cell 尺寸由 GridLayoutGroup 决定）
+        var rt = content.GetComponent<RectTransform>();
+        if (rt != null)
         {
-            var btnObj = Instantiate(itemButtonPrefab, container);
-            if (!btnObj.activeSelf) btnObj.SetActive(true);   // 模板源被隐藏，克隆体需激活
-
-            var itemPfb = btnObj.GetComponent<ItemPrefab>();
-            if (itemPfb != null)
-            {
-                itemPfb.Init(item, showOffer);
-            }
-            else
-            {
-                // 兜底：预制体未挂 ItemPrefab 时，沿用“文本 + Button”旧逻辑
-                var btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
-                if (btnText != null)
-                    btnText.text = showOffer ? $"{item.itemName}  估价:{item.appraisedOffer:F0}" : item.itemName;
-                var btn = btnObj.GetComponent<Button>();
-                if (btn != null) btn.onClick.AddListener(() => manager.SelectItem(item));
-            }
-
-            var drag = btnObj.GetComponent<DraggableItemButton>();
-            if (drag == null)
-            {
-                drag = btnObj.AddComponent<DraggableItemButton>();
-            }
-            drag.item = item;
-
-            itemButtons.Add(btnObj);
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
         }
+
+        var itemPfb = content.GetComponent<ItemPrefab>();
+        if (itemPfb != null)
+        {
+            itemPfb.Init(item, showOffer);
+        }
+        else
+        {
+            // 兜底：未挂 ItemPrefab 时，沿用“文本 + Button”旧逻辑
+            var btnText = content.GetComponentInChildren<TextMeshProUGUI>();
+            if (btnText != null)
+                btnText.text = showOffer ? $"{item.itemName}  估价:{item.appraisedOffer:F0}" : item.itemName;
+            var btn = content.GetComponent<Button>();
+            if (btn != null) btn.onClick.AddListener(() => manager.SelectItem(item));
+        }
+
+        var drag = content.GetComponent<DraggableItemButton>();
+        if (drag == null)
+        {
+            drag = content.AddComponent<DraggableItemButton>();
+        }
+        drag.item = item;
     }
 
     void OnClientItemPlacementChangedHandler()
@@ -637,7 +663,7 @@ public class PawnDeskUI : MonoBehaviour
     {
         dayReportPanel?.SetActive(false);
         toastPanel?.SetActive(false);
-        shelfPanel?.SetActive(false);
+        // 货架改为常驻显示：不再隐藏，玩家库存物品可直接查看与拖拽
     }
 
     // ============ Toast ============
