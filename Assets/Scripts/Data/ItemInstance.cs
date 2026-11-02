@@ -43,6 +43,9 @@ public class ItemInstance
     public enum ItemPlacement { Window, Counter, Shelf }
     public ItemPlacement placement = ItemPlacement.Window;
 
+    /// <summary>柜台格位下标（0~9）；-1=未指定（放柜台时自动分配首个空格）。仅运行时，不持久化。</summary>
+    public int counterSlot = -1;
+
     /// <summary>放上柜台后自动估价的结果（信用点）；未估价或放回窗口时为 0。</summary>
     [NonSerialized]
     public float appraisedOffer;

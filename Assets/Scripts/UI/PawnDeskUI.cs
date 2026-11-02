@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using TMPro;
 
 public class PawnDeskUI : MonoBehaviour
@@ -35,6 +36,8 @@ public class PawnDeskUI : MonoBehaviour
     public GameObject itemButtonPrefab;  // 含 Button + Text + Image
 
     public Color emptySlotColor = new Color(0.08f, 0.08f, 0.12f, 0.35f); // 空槽底色（网格参数由场景 GridLayoutGroup 控制）
+
+    public const int CounterSlotCount = 10; // 柜台固定格子数（窗口格子数随客户物品数量）
 
     [Header("初始物品放置窗口")]
     public GameObject windowPanel;
@@ -407,11 +410,7 @@ public class PawnDeskUI : MonoBehaviour
     /// <summary>点开/关闭玩家面板；打开时刷新数值。</summary>
     void TogglePlayerPanel()
     {
-        if (playerPanel.activeSelf == true)
-        {
-            playerPanel.SetActive(false);
-        }
-        else playerPanel.SetActive(true);
+        playerPanel.SetActive(true);
     }
 
     void RefreshTopBar()
@@ -482,6 +481,19 @@ public class PawnDeskUI : MonoBehaviour
             }
             return true;
         };
+
+        // 按格落点（柜台格子）：仅客户物品可放入柜台指定格（拖到哪个格进哪个格）
+        CounterDrag.RequestMoveToCell = (item, slot) =>
+        {
+            if (manager == null || item == null) return false;
+            if (item.owner != ItemInstance.ItemOwnership.Customer) return false;   // 仅客户物品可入柜台格
+            if (!CanDropTo(item, ItemInstance.ItemPlacement.Counter))
+            {
+                GameEvents.SafeInvoke(GameEvents.OnToastRequested, "这里放不下该物品", "warning", 1.5f);
+                return false;
+            }
+            return manager.PlaceItemOnCounterAt(item, slot);
+        };
     }
 
     /// <summary>归属 × 面板 校验：判定某归属的物品是否允许落到 target 面板。</summary>
@@ -525,16 +537,16 @@ public class PawnDeskUI : MonoBehaviour
         ClearAllChildren(itemsContainer);
         ClearAllChildren(counterContainer);
 
-        if (manager == null || manager.currentClient == null || clientSlots.Count == 0)
+        if (manager == null || manager.currentClient == null)
         {
             return;
         }
 
-        // 窗口网格：只填仍处于「窗口」的物品
-        BuildGrid(itemsContainer, ItemInstance.ItemPlacement.Window);
+        // 窗口网格：格子数随客户带来的物品数量
+        BuildGrid(itemsContainer, ItemInstance.ItemPlacement.Window, clientSlots.Count);
 
-        // 柜台网格：只填已拖到「柜台」的物品
-        BuildGrid(counterContainer, ItemInstance.ItemPlacement.Counter);
+        // 柜台网格：固定 CounterSlotCount 格，只填已拖到「柜台」的物品
+        BuildGrid(counterContainer, ItemInstance.ItemPlacement.Counter, CounterSlotCount);
 
         if (counterCountText != null)
             counterCountText.text = $"柜台估价: {manager.GetClientCounterCount()}";
@@ -551,33 +563,58 @@ public class PawnDeskUI : MonoBehaviour
         }
     }
 
-    /// <summary>在容器里按 clientSlots 建一排固定格子，每格绑定原始下标；对应物品处于 target 区域时填入该格。</summary>
-    void BuildGrid(Transform panel, ItemInstance.ItemPlacement target)
+    /// <summary>在容器里建固定数量的格子，按归属/格位填充。窗口=客户物品数(按原始下标)；柜台=固定槽位数(按 counterSlot，拖到哪个格进哪个格)。</summary>
+    void BuildGrid(Transform panel, ItemInstance.ItemPlacement target, int cellCount)
     {
         if (panel == null) return;
 
         var own = manager.currentClient.broughtItems;
         bool showOffer = target == ItemInstance.ItemPlacement.Counter;
 
-        for (int i = 0; i < clientSlots.Count; i++)
+        // 柜台：固定格数，每格按 counterSlot 填充，并各自成为可落点（拖到哪个格进哪个格）
+        if (target == ItemInstance.ItemPlacement.Counter)
+        {
+            for (int k = 0; k < cellCount; k++)
+            {
+                GameObject cell = CreateSlotCell(panel, k, raycastable: true, cellIndex: k);
+                var item = own.FirstOrDefault(i =>
+                    i.placement == ItemInstance.ItemPlacement.Counter && i.counterSlot == k);
+                if (item != null)
+                    FillSlot(cell.transform, item, showOffer);
+            }
+            return;
+        }
+
+        // 窗口：格子数随客户物品，按原始下标填充（不补位）
+        for (int i = 0; i < cellCount; i++)
         {
             GameObject cell = CreateSlotCell(panel, i);
-            var item = clientSlots[i];
+            var item = (i < clientSlots.Count) ? clientSlots[i] : null;
             bool filled = item != null && own.Contains(item) && item.placement == target;
             if (filled)
                 FillSlot(cell.transform, item, showOffer);
         }
     }
 
-    /// <summary>创建一个空格（物品栏）：固定尺寸的槽位底（Image），不阻挡拖拽射线。</summary>
-    GameObject CreateSlotCell(Transform parent, int index)
+    /// <summary>创建一个槽位底（Image）。raycastable=true 时格子可接收按格拖放（柜台）；否则让拖拽射线穿过落到面板。</summary>
+    GameObject CreateSlotCell(Transform parent, int index, bool raycastable = false, int cellIndex = -1)
     {
         var go = new GameObject($"Slot_{index}", typeof(RectTransform));
         go.transform.SetParent(parent, false);
         go.AddComponent<CanvasRenderer>();
         var img = go.AddComponent<Image>();
         img.color = emptySlotColor;
-        img.raycastTarget = false;   // 让拖拽射线穿过，落到面板的 ItemDropZone
+        if (raycastable)
+        {
+            img.raycastTarget = true;   // 柜台格子：接收拖放，按格位落子
+            var dz = go.AddComponent<ItemDropZone>();
+            dz.targetPlacement = ItemInstance.ItemPlacement.Counter;
+            dz.cellIndex = cellIndex;
+        }
+        else
+        {
+            img.raycastTarget = false;   // 窗口格子：让拖拽射线穿过，落到面板的 ItemDropZone
+        }
         return go;
     }
 

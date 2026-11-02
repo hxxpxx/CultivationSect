@@ -25,6 +25,9 @@ public static class CounterDrag
     /// <summary>由 UI 注册：请求把 item 移动到 target 区域。返回是否接受。</summary>
     public static System.Func<ItemInstance, ItemInstance.ItemPlacement, bool> RequestMove;
 
+    /// <summary>由 UI 注册：请求把 item 放入柜台指定格位 cellIndex。返回是否接受。</summary>
+    public static System.Func<ItemInstance, int, bool> RequestMoveToCell;
+
     /// <summary>恢复被停用的滚动列表（拖拽结束/放下后调用，防丢失）。</summary>
     public static void ReleaseBlockedScrollRect()
     {
@@ -122,6 +125,7 @@ public class DraggableItemButton : MonoBehaviour, IBeginDragHandler, IDragHandle
 public class ItemDropZone : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPointerExitHandler
 {
     public ItemInstance.ItemPlacement targetPlacement;
+    public int cellIndex = -1;   // 指定落格位（>=0 时按格放置）；-1=面板级（整块区域）
 
     Image bg;
     Color normalColor;
@@ -135,14 +139,21 @@ public class ItemDropZone : MonoBehaviour, IDropHandler, IPointerEnterHandler, I
     public void OnDrop(PointerEventData eventData)
     {
         var item = CounterDrag.Dragging;
+        bool handled = false;
 
-        if (item != null && CounterDrag.RequestMove != null)
+        if (item != null)
         {
-            CounterDrag.RequestMove(item, targetPlacement);
+            // 按格落点：优先走格位回调（如放入柜台指定格）
+            if (cellIndex >= 0 && CounterDrag.RequestMoveToCell != null)
+                handled = CounterDrag.RequestMoveToCell(item, cellIndex);
+            else if (CounterDrag.RequestMove != null)
+                handled = CounterDrag.RequestMove(item, targetPlacement);
+            else
+                Debug.LogWarning($"[拖拽] RequestMove 未注册或物品为空，无法移动！RequestMove为空: {CounterDrag.RequestMove == null}");
         }
         else
         {
-            Debug.LogWarning($"[拖拽] RequestMove 未注册或物品为空，无法移动！RequestMove为空: {CounterDrag.RequestMove == null}");
+            Debug.LogWarning("[拖拽] Dragging 为空，无法移动。");
         }
 
         // 放下后立刻恢复滚动列表（物品若已移动，其按钮会被 UI 刷新销毁，OnEndDrag 不再触发）

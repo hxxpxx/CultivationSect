@@ -7,7 +7,7 @@ public class ClientGenerator
 {
     // 纯逻辑随机生成器（非 MonoBehaviour，可 new），无需场景组件
     public int minItemsPerClient = 1;
-    public int maxItemsPerClient = 3;
+    public int maxItemsPerClient = 10;
     public float rareItemChance = 0.15f;
 
     public ClientProfile GenerateClient(int day)

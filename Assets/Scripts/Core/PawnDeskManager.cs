@@ -201,12 +201,39 @@ public class PawnDeskManager : MonoBehaviour
 
     // ============ 柜台 / 窗口 放置 ============
 
-    /// <summary>把客户携带的物品放到柜台：自动估价（标准报价，假货/赃物折价留给扫描揭示）。</summary>
+    /// <summary>柜台网格固定格数（与 UI 的 CounterSlotCount 保持一致）。</summary>
+    public const int CounterGridSize = 10;
+
+    /// <summary>把客户携带的物品放到柜台：自动估价；未指定格位时自动分配首个空格。</summary>
     public void PlaceItemOnCounter(ItemInstance item)
     {
         if (!CanPlaceClientItem(item)) return;
+        int slot = FindFreeCounterSlot();
+        if (slot < 0)
+        {
+            GameEvents.SafeInvoke(GameEvents.OnToastRequested, "柜台已满，放不下更多物品", "warning", 1.5f);
+            return;
+        }
+        PlaceItemOnCounterAt(item, slot);
+    }
+
+    /// <summary>把客户物品放入柜台指定格位（拖到哪个格进哪个格）；格位被占用则拒绝。</summary>
+    public bool PlaceItemOnCounterAt(ItemInstance item, int slot)
+    {
+        if (!CanPlaceClientItem(item)) return false;
+        if (slot < 0 || slot >= CounterGridSize) return false;
+
+        // 该格已被其它物品占用 → 拒绝
+        bool occupied = currentClient.broughtItems.Any(i =>
+            i != item && i.placement == ItemInstance.ItemPlacement.Counter && i.counterSlot == slot);
+        if (occupied)
+        {
+            GameEvents.SafeInvoke(GameEvents.OnToastRequested, "该柜台格已被占用", "warning", 1.5f);
+            return false;
+        }
 
         item.placement = ItemInstance.ItemPlacement.Counter;
+        item.counterSlot = slot;
         // 柜台只给标准报价：不折算假货/赃物/危险品，识别异常留给扫描
         item.appraisedOffer = pricer.EstimateStandardOffer(item, dayScheduler.currentDayConfig);
 
@@ -214,15 +241,29 @@ public class PawnDeskManager : MonoBehaviour
 
         OnClientItemPlacementChanged?.Invoke();
         GameEvents.SafeInvoke(GameEvents.OnToastRequested,
-            $"「{item.itemName}」已放上柜台，估价 {item.appraisedOffer:F0}", "info", 2f);
+            $"「{item.itemName}」已放入柜台格 {slot + 1}，估价 {item.appraisedOffer:F0}", "info", 2f);
+        return true;
     }
 
-    /// <summary>把物品从柜台放回窗口：撤销估价。</summary>
+    /// <summary>查找柜台首个空余格位（0~9），满则返回 -1。</summary>
+    int FindFreeCounterSlot()
+    {
+        if (currentClient == null) return -1;
+        var used = currentClient.broughtItems
+            .Where(i => i.placement == ItemInstance.ItemPlacement.Counter)
+            .Select(i => i.counterSlot).ToHashSet();
+        for (int s = 0; s < CounterGridSize; s++)
+            if (!used.Contains(s)) return s;
+        return -1;
+    }
+
+    /// <summary>把物品从柜台放回窗口：撤销估价，清除格位。</summary>
     public void MoveItemBackToWindow(ItemInstance item)
     {
         if (!CanPlaceClientItem(item)) return;
 
         item.placement = ItemInstance.ItemPlacement.Window;
+        item.counterSlot = -1;
         item.appraisedOffer = 0f;
 
         if (ReferenceEquals(item, selectedItem)) lastOffer = 0f;
