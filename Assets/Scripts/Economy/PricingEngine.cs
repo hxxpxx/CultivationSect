@@ -53,7 +53,7 @@ public class PricingEngine
         float risk = GetRiskDiscount(item, day);
 
         float basePrice = market * rarityMul * day.baseDemandMultiplier * risk;
-        return Mathf.Max(1f, basePrice * 1.3f);
+        return Mathf.Max(1f, basePrice * 1.1f);
     }
 
     float GetRarityMultiplier(ItemRarity r)

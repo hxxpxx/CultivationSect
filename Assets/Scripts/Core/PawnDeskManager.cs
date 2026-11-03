@@ -46,6 +46,7 @@ public class PawnDeskManager : MonoBehaviour
     public System.Action<string> OnDecisionMade;
     public System.Action<ItemInstance> OnItemBought;   // 成功收购
     public System.Action<ItemInstance> OnItemSold;     // 成功售出
+    public System.Action<ItemInstance> OnCounterItemPlaced; // 客户物品成功放入柜台（自动估价后）
     public System.Action OnClientItemPlacementChanged; // 客户物品在 窗口/柜台 间移动
     public System.Action OnSpiritEnergyChanged;        // 灵能变动
     public System.Action OnDayEnded;
@@ -183,7 +184,7 @@ public class PawnDeskManager : MonoBehaviour
     /// <summary>选中货架上的物品（用于售出）</summary>
     public void SelectStockItem(int index)
     {
-        var items = GetCounterItems();
+        var items = GetShelfItems();   // 柜台上的玩家物品不占货架位，从可售货架列表选择
         if (index < 0 || index >= items.Count)
         {
             Debug.LogWarning("无效货架索引");
@@ -223,9 +224,8 @@ public class PawnDeskManager : MonoBehaviour
         if (!CanPlaceClientItem(item)) return false;
         if (slot < 0 || slot >= CounterGridSize) return false;
 
-        // 该格已被其它物品占用 → 拒绝
-        bool occupied = currentClient.broughtItems.Any(i =>
-            i != item && i.placement == ItemInstance.ItemPlacement.Counter && i.counterSlot == slot);
+        // 该格已被其它物品占用（含客户物品与玩家物品）→ 拒绝
+        bool occupied = IsCounterSlotOccupied(slot, item);
         if (occupied)
         {
             GameEvents.SafeInvoke(GameEvents.OnToastRequested, "该柜台格已被占用", "warning", 1.5f);
@@ -242,19 +242,35 @@ public class PawnDeskManager : MonoBehaviour
         OnClientItemPlacementChanged?.Invoke();
         GameEvents.SafeInvoke(GameEvents.OnToastRequested,
             $"「{item.itemName}」已放入柜台格 {slot + 1}，估价 {item.appraisedOffer:F0}", "info", 2f);
+
+        // 通知 UI 自动弹出/刷新估值面板（名称+估价+购买）
+        OnCounterItemPlaced?.Invoke(item);
         return true;
     }
 
-    /// <summary>查找柜台首个空余格位（0~9），满则返回 -1。</summary>
+    /// <summary>查找柜台首个空余格位（0~9），满则返回 -1；同时计入客户与玩家物品占用。</summary>
     int FindFreeCounterSlot()
     {
-        if (currentClient == null) return -1;
-        var used = currentClient.broughtItems
-            .Where(i => i.placement == ItemInstance.ItemPlacement.Counter)
-            .Select(i => i.counterSlot).ToHashSet();
+        var used = new HashSet<int>();
+        if (currentClient != null)
+            foreach (var i in currentClient.broughtItems.Where(i => i.placement == ItemInstance.ItemPlacement.Counter))
+                used.Add(i.counterSlot);
+        if (counterInventory != null)
+            foreach (var i in counterInventory.GetAllItems().Where(i => i.placement == ItemInstance.ItemPlacement.Counter))
+                used.Add(i.counterSlot);
         for (int s = 0; s < CounterGridSize; s++)
             if (!used.Contains(s)) return s;
         return -1;
+    }
+
+    /// <summary>判断柜台格位是否已被其它物品占用（含客户物品与玩家物品）。</summary>
+    bool IsCounterSlotOccupied(int slot, ItemInstance exclude)
+    {
+        bool byClient = currentClient != null && currentClient.broughtItems.Any(i =>
+            i != exclude && i.placement == ItemInstance.ItemPlacement.Counter && i.counterSlot == slot);
+        bool byPlayer = counterInventory != null && counterInventory.GetAllItems().Any(i =>
+            i != exclude && i.placement == ItemInstance.ItemPlacement.Counter && i.counterSlot == slot);
+        return byClient || byPlayer;
     }
 
     /// <summary>把物品从柜台放回窗口：撤销估价，清除格位。</summary>
@@ -287,6 +303,48 @@ public class PawnDeskManager : MonoBehaviour
     public List<ItemInstance> GetClientCounterItems()
         => currentClient == null ? new List<ItemInstance>()
             : currentClient.broughtItems.Where(i => i.placement == ItemInstance.ItemPlacement.Counter).ToList();
+
+    /// <summary>玩家(Merchant)放到柜台上、待出售的物品（来自货架库存）。</summary>
+    public List<ItemInstance> GetPlayerCounterItems()
+        => counterInventory == null ? new List<ItemInstance>()
+            : counterInventory.GetAllItems().Where(i => i.placement == ItemInstance.ItemPlacement.Counter).ToList();
+
+    /// <summary>把玩家(货架)物品放入柜台指定格；售价=卖出价，用于柜台显示与批量出售。</summary>
+    public bool PlacePlayerItemOnCounterAt(ItemInstance item, int slot)
+    {
+        if (item == null || item.owner != ItemInstance.ItemOwnership.Merchant) return false;
+        if (counterInventory == null || !counterInventory.Contains(item)) return false;
+        if (slot < 0 || slot >= CounterGridSize) return false;
+
+        if (IsCounterSlotOccupied(slot, item))
+        {
+            GameEvents.SafeInvoke(GameEvents.OnToastRequested, "该柜台格已被占用", "warning", 1.5f);
+            return false;
+        }
+
+        item.placement = ItemInstance.ItemPlacement.Counter;
+        item.counterSlot = slot;
+        item.appraisedOffer = pricer.EstimateSellPrice(item, dayScheduler.currentDayConfig);   // 售价
+
+        GameEvents.SafeInvoke(GameEvents.OnToastRequested,
+            $"「{item.itemName}」已放入柜台格 {slot + 1}，售价 {item.appraisedOffer:F0}", "info", 2f);
+        OnClientItemPlacementChanged?.Invoke();   // 让 UI 重建柜台网格以显示玩家物品
+        OnCounterItemPlaced?.Invoke(item);
+        return true;
+    }
+
+    /// <summary>把玩家(货架)物品放入柜台首个空位。</summary>
+    public bool PlacePlayerItemOnCounter(ItemInstance item)
+    {
+        if (item == null || item.owner != ItemInstance.ItemOwnership.Merchant) return false;
+        int slot = FindFreeCounterSlot();
+        if (slot < 0)
+        {
+            GameEvents.SafeInvoke(GameEvents.OnToastRequested, "柜台已满，放不下更多物品", "warning", 1.5f);
+            return false;
+        }
+        return PlacePlayerItemOnCounterAt(item, slot);
+    }
 
     public InspectionReport ScanSelectedItem()
     {
@@ -352,15 +410,14 @@ public class PawnDeskManager : MonoBehaviour
 
     // ============ 决策（买 / 卖 / 拒绝） ============
 
-    public enum DecisionType { Buy, Sell, Reject }
+    public enum DecisionType { Reject, Report }
 
     public string ExecuteDecision(DecisionType decision)
     {
         string resultMessage;
         switch (decision)
         {
-            case DecisionType.Buy:  resultMessage = ExecuteBuy();   break;
-            case DecisionType.Sell: resultMessage = ExecuteSell();  break;
+            case DecisionType.Report:  resultMessage = ExecuteReject();   break;
             default:                resultMessage = ExecuteReject(); break;
         }
 
@@ -369,62 +426,144 @@ public class PawnDeskManager : MonoBehaviour
     }
 
     /// <summary>收购客户物品：付款并放入柜台货架</summary>
-    string ExecuteBuy()
+    //string ExecuteBuy()
+    //{
+    //    if (selectedItem == null) return "未选中物品，无法收购。";
+    //    if (selectedItem.owner != ItemInstance.ItemOwnership.Customer) return "该物品不属于客户，无法收购。";
+    //    if (selectedItem.placement != ItemInstance.ItemPlacement.Counter) return "请先将物品放到柜台估价。";
+
+    //    float cost = selectedItem.appraisedOffer;
+    //    if (cost <= 0) return "无法估价，请先将物品放到柜台。";
+    //    if (shopFunds < cost) return "资金不足，无法收购。";
+    //    if (counterInventory == null || counterInventory.IsFull) return "货架已满，无法收购。";
+
+    //    shopFunds -= cost;
+    //    selectedItem.owner = ItemInstance.ItemOwnership.Merchant;
+
+    //    if (!counterInventory.Add(selectedItem))
+    //    {
+    //        shopFunds += cost; // 入库失败回滚
+    //        return "货架已满，无法收购。";
+    //    }
+    //    currentClient?.broughtItems.Remove(selectedItem);
+    //    selectedItem.placement = ItemInstance.ItemPlacement.Shelf;   // 已入库货架，清出柜台
+    //    selectedItem.counterSlot = -1;
+
+    //    GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, -cost, "收购");
+    //    GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "buy_success", 0.8f);
+
+    //    var bought = selectedItem;
+    //    selectedItem = null;
+    //    lastReport = null;
+    //    lastOffer = 0;
+
+    //    OnItemBought?.Invoke(bought);
+    //    return $"收购成功！支出 {cost:F0}，已收入货架。";
+    //}
+
+    /// <summary>一次性收购柜台上所有客户物品：合并估价总额付款并全部入库。</summary>
+    public string ExecuteBuyAll()
     {
-        if (selectedItem == null) return "未选中物品，无法收购。";
-        if (selectedItem.owner != ItemInstance.ItemOwnership.Customer) return "该物品不属于客户，无法收购。";
-        if (selectedItem.placement != ItemInstance.ItemPlacement.Counter) return "请先将物品放到柜台估价。";
+        var items = GetClientCounterItems();
+        if (items == null || items.Count == 0) return "柜台上没有可收购的物品。";
 
-        float cost = selectedItem.appraisedOffer;
-        if (cost <= 0) return "无法估价，请先将物品放到柜台。";
-        if (shopFunds < cost) return "资金不足，无法收购。";
-        if (counterInventory == null || counterInventory.IsFull) return "货架已满，无法收购。";
-
-        shopFunds -= cost;
-        selectedItem.owner = ItemInstance.ItemOwnership.Merchant;
-
-        if (!counterInventory.Add(selectedItem))
+        // 校验：全部需为客户物品且已放柜台估价
+        foreach (var it in items)
         {
-            shopFunds += cost; // 入库失败回滚
-            return "货架已满，无法收购。";
+            if (it.owner != ItemInstance.ItemOwnership.Customer)
+                return "存在不属于客户的物品，无法收购。";
+            if (it.placement != ItemInstance.ItemPlacement.Counter)
+                return "请先将物品放到柜台估价。";
+            if (it.appraisedOffer <= 0)
+                return "存在无法估价的物品，无法收购。";
         }
-        currentClient?.broughtItems.Remove(selectedItem);
 
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, -cost, "收购");
+        float total = items.Sum(it => it.appraisedOffer);
+        if (shopFunds < total) return $"资金不足，收购需 {total:F0} 信用点。";
+        if (counterInventory == null) return "货架已满，无法收购。";
+        if (counterInventory.FreeSlotCount < items.Count)
+            return "货架空间不足，无法一次性收购全部。";
+
+        foreach (var it in items)
+        {
+            it.owner = ItemInstance.ItemOwnership.Merchant;
+            if (!counterInventory.Add(it))
+                return "货架已满，部分物品未能收购。";
+            currentClient?.broughtItems.Remove(it);
+            it.placement = ItemInstance.ItemPlacement.Shelf;   // 已入库货架，清出柜台
+            it.counterSlot = -1;
+        }
+
+        shopFunds -= total;
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, -total, "收购");
         GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "buy_success", 0.8f);
 
-        var bought = selectedItem;
         selectedItem = null;
+        selectedStockItem = null;
         lastReport = null;
         lastOffer = 0;
 
-        OnItemBought?.Invoke(bought);
-        return $"收购成功！支出 {cost:F0}，已收入货架。";
+        if (items.Count > 0) OnItemBought?.Invoke(items[items.Count - 1]);
+        return $"收购成功！支出 {total:F0}，已收入货架 {items.Count} 件。";
+    }
+
+    /// <summary>一次性出售柜台上所有玩家物品：按售价总额收款并全部出库。</summary>
+    public string ExecuteSellAll()
+    {
+        var items = GetPlayerCounterItems();
+        if (items == null || items.Count == 0) return "柜台上没有可出售的物品。";
+        if (currentClient == null) return "没有客户在店，无法出售。";
+
+        float total = 0f;
+        foreach (var it in items)
+        {
+            if (counterInventory == null || !counterInventory.Contains(it)) return "该物品不在货架上。";
+            total += pricer.EstimateSellPrice(it, dayScheduler.currentDayConfig);
+        }
+
+        foreach (var it in items)
+        {
+            counterInventory.Remove(it);
+            it.placement = ItemInstance.ItemPlacement.Shelf;
+            it.counterSlot = -1;
+        }
+
+        shopFunds += total;
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, total, "售出");
+        GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "sell_success", 0.8f);
+
+        selectedItem = null;
+        selectedStockItem = null;
+        lastReport = null;
+        lastOffer = 0;
+
+        if (items.Count > 0) OnItemSold?.Invoke(items[items.Count - 1]);
+        return $"售出 {items.Count} 件！收入 {total:F0}。";
     }
 
     /// <summary>售出货架物品：从货架移除并收款</summary>
-    string ExecuteSell()
-    {
-        if (selectedStockItem == null) return "未选中待售物品。";
-        if (currentClient == null) return "没有客户在店。";
-        if (counterInventory == null || !counterInventory.Contains(selectedStockItem)) return "该物品不在货架上。";
+    //string ExecuteSell()
+    //{
+    //    if (selectedStockItem == null) return "未选中待售物品。";
+    //    if (currentClient == null) return "没有客户在店。";
+    //    if (counterInventory == null || !counterInventory.Contains(selectedStockItem)) return "该物品不在货架上。";
 
-        float price = pricer.EstimateSellPrice(selectedStockItem, dayScheduler.currentDayConfig);
-        string itemName = selectedStockItem.itemName;
+    //    float price = pricer.EstimateSellPrice(selectedStockItem, dayScheduler.currentDayConfig);
+    //    string itemName = selectedStockItem.itemName;
 
-        if (!counterInventory.Remove(selectedStockItem))
-            return "售出失败。";
+    //    if (!counterInventory.Remove(selectedStockItem))
+    //        return "售出失败。";
 
-        shopFunds += price;
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, price, "售出");
-        GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "sell_success", 0.8f);
+    //    shopFunds += price;
+    //    GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, price, "售出");
+    //    GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "sell_success", 0.8f);
 
-        var sold = selectedStockItem;
-        selectedStockItem = null;
+    //    var sold = selectedStockItem;
+    //    selectedStockItem = null;
 
-        OnItemSold?.Invoke(sold);
-        return $"售出 {itemName}！收入 {price:F0}。";
-    }
+    //    OnItemSold?.Invoke(sold);
+    //    return $"售出 {itemName}！收入 {price:F0}。";
+    //}
 
     /// <summary>拒绝交易：清空当前选中</summary>
     string ExecuteReject()
@@ -439,6 +578,12 @@ public class PawnDeskManager : MonoBehaviour
     // ============ 查询 ============
     public List<ItemInstance> GetCounterItems()
         => counterInventory != null ? counterInventory.GetAllItems() : new List<ItemInstance>();
+
+    /// <summary>货架可出售物品：已放到柜台上的玩家物品不占货架位（显示与选择都用此列表，保持下标一致）。</summary>
+    public List<ItemInstance> GetShelfItems()
+        => counterInventory != null
+            ? counterInventory.GetAllItems().Where(i => i.placement != ItemInstance.ItemPlacement.Counter).ToList()
+            : new List<ItemInstance>();
 
     public int GetCounterCount()
         => counterInventory != null ? counterInventory.UsedSlots : 0;
