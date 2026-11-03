@@ -49,6 +49,9 @@ public class DraggableItemButton : MonoBehaviour, IBeginDragHandler, IDragHandle
     Graphic[] graphics;
     ScrollRect scrollRect;   // 所在滚动列表（若物品在 ScrollRect 内）
 
+    // 记录松手前的原始布局，归位时复位，避免保留拖放坐标导致物品卡在落点
+    Vector2 origAnchorMin, origAnchorMax, origOffsetMin, origOffsetMax;
+
     void Awake()
     {
         rootCanvas = GetComponentInParent<Canvas>()?.rootCanvas;
@@ -64,6 +67,14 @@ public class DraggableItemButton : MonoBehaviour, IBeginDragHandler, IDragHandle
         dragging = true;
         originalParent = transform.parent;
         originalSibling = transform.GetSiblingIndex();
+        var rt0 = transform as RectTransform;
+        if (rt0 != null)
+        {
+            origAnchorMin = rt0.anchorMin;
+            origAnchorMax = rt0.anchorMax;
+            origOffsetMin = rt0.offsetMin;
+            origOffsetMax = rt0.offsetMax;
+        }
 
         // 若物品在滚动列表内：拖拽期间临时停用，避免 ScrollRect 抢走拖拽变成滚动
         if (scrollRect != null)
@@ -106,8 +117,19 @@ public class DraggableItemButton : MonoBehaviour, IBeginDragHandler, IDragHandle
         // 视觉归位（真正的移动结果由 UI 在 RequestMove 后刷新重建）
         if (originalParent != null)
         {
-            transform.SetParent(originalParent, true);
+            // 用 false 保持本地变换，再复位为拖拽前的原始布局：
+            // 若用 true(保留世界坐标)且物品是格子 cell 的子物体，重加回格子不会触发
+            // GridLayoutGroup 重排，物品会带着落点坐标卡在原地（例如卡在货架上）。
+            transform.SetParent(originalParent, false);
             transform.SetSiblingIndex(originalSibling);
+            var rt = transform as RectTransform;
+            if (rt != null)
+            {
+                rt.anchorMin = origAnchorMin;
+                rt.anchorMax = origAnchorMax;
+                rt.offsetMin = origOffsetMin;
+                rt.offsetMax = origOffsetMax;
+            }
         }
 
         CounterDrag.Dragging = null;
