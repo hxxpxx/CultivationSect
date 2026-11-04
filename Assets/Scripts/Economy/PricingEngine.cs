@@ -9,10 +9,9 @@ public class PricingEngine
         if (item == null) return 0f;
 
         float market = item.baseValue;
-        float rarityMul = GetRarityMultiplier(item.rarity);
         float risk = GetRiskDiscount(item, day);
 
-        float baseOffer = market * rarityMul * day.baseDemandMultiplier * risk;
+        float baseOffer = market * day.baseDemandMultiplier * risk;
         return baseOffer * day.pawnPayoutRate;
     }
 
@@ -22,7 +21,7 @@ public class PricingEngine
         if (item == null) return 0f;
         if (item.isBanned) return 0f;   // 禁止流通物不可交易
 
-        float baseOffer = item.baseValue * GetRarityMultiplier(item.rarity) * day.baseDemandMultiplier;
+        float baseOffer = item.baseValue * day.baseDemandMultiplier;
         return baseOffer * day.pawnPayoutRate;
     }
 
@@ -43,30 +42,16 @@ public class PricingEngine
         return offer;
     }
 
-    // 售出定价（不打收购折价，商家加价约 30%）
+    // 售出定价（不打收购折价，商家加价约 10%）
     public float EstimateSellPrice(ItemInstance item, DayConfig day)
     {
         if (item == null) return 0f;
 
         float market = item.baseValue;
-        float rarityMul = GetRarityMultiplier(item.rarity);
         float risk = GetRiskDiscount(item, day);
 
-        float basePrice = market * rarityMul * day.baseDemandMultiplier * risk;
+        float basePrice = market * day.baseDemandMultiplier * risk;
         return Mathf.Max(1f, basePrice * 1.1f);
-    }
-
-    float GetRarityMultiplier(ItemRarity r)
-    {
-        switch (r)
-        {
-            case ItemRarity.Common: return 1f;
-            case ItemRarity.Uncommon: return 1.5f;
-            case ItemRarity.Rare: return 2.5f;
-            case ItemRarity.Epic: return 5f;
-            case ItemRarity.Legendary: return 10f;
-            default: return 1f;
-        }
     }
 
     float GetRiskDiscount(ItemInstance item, DayConfig day)

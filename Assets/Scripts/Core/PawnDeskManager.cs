@@ -23,12 +23,12 @@ public class PawnDeskManager : MonoBehaviour
     [HideInInspector] public AppraisalValidator validator;
     [HideInInspector] public PricingEngine pricer;
     [HideInInspector] public DayScheduler dayScheduler;
-    [HideInInspector] public GameStateRuntime gameState;
+    // 跨场景持久状态单例：资金/灵能/天数/声望 都在其中，切场景不清零
+    public GameStateRuntime gameState => GameStateRuntime.Instance;
 
     // ============ 资金与货架（取代原 PawnLedger） ============
-    [HideInInspector] public float shopFunds;               // 商栈资金
+    // 资金与灵能已提升到 GameStateRuntime.Instance，这里不再声明实例字段
     [HideInInspector] public Inventory counterInventory;    // 柜台货架（收购入库/售出出库）
-    [HideInInspector] public float spiritEnergy;           // 灵能（玩家扫描鉴定资源）
 
     // ============ 当前状态 ============
     [HideInInspector] public ClientProfile currentClient;
@@ -68,12 +68,17 @@ public class PawnDeskManager : MonoBehaviour
     {
         validator = new AppraisalValidator();
         pricer = new PricingEngine();
-        shopFunds = startingFunds;
+
+        // 首次初始化资金与灵能（上限以 Inspector 配置为准）；已初始化则沿用，切场景不重置
+        if (!gameState.fundsInitialized)
+        {
+            gameState.maxSpiritEnergy = maxSpiritEnergy;
+            gameState.shopFunds = startingFunds;
+            gameState.spiritEnergy = maxSpiritEnergy;
+            gameState.fundsInitialized = true;
+        }
 
         dayScheduler = new DayScheduler();
-        gameState = new GameStateRuntime();
-        spiritEnergy = maxSpiritEnergy;
-
 
         // 初始化柜台货架容器（收购入库、售出出库）
         counterInventory = InventoryManager.Instance.GetOrCreate("counter", "柜台货架", counterCapacity);
@@ -96,7 +101,7 @@ public class PawnDeskManager : MonoBehaviour
         dayScheduler.StartDay(gameState.currentDay);
 
         isProcessingDay = true;
-        spiritEnergy = maxSpiritEnergy;
+        gameState.spiritEnergy = gameState.maxSpiritEnergy;   // 每天开始时满；切换场景不重置
 
         OnDayStarted?.Invoke();
         OnSpiritEnergyChanged?.Invoke();
@@ -143,16 +148,16 @@ public class PawnDeskManager : MonoBehaviour
     public void EndDay()
     {
         isProcessingDay = false;
-        spiritEnergy = maxSpiritEnergy;
+        gameState.spiritEnergy = gameState.maxSpiritEnergy;
 
         OnSpiritEnergyChanged?.Invoke();
         GameEvents.SafeInvoke(GameEvents.OnDayChanged, gameState.currentDay);
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, 0f, "日结算");
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, gameState.shopFunds, 0f, "日结算");
 
         OnDayEnded?.Invoke();
 
         Debug.Log($"=== 第 {gameState.currentDay} 天结束 ===");
-        GameEvents.SafeInvoke(GameEvents.OnToastRequested, $"第 {gameState.currentDay} 天结束，资金: {shopFunds:F0}", "info", 3f);
+        GameEvents.SafeInvoke(GameEvents.OnToastRequested, $"第 {gameState.currentDay} 天结束，资金: {gameState.shopFunds:F0}", "info", 3f);
     }
 
     public void AdvanceToNextDay()
@@ -355,7 +360,7 @@ public class PawnDeskManager : MonoBehaviour
         }
 
         // 扫描鉴定消耗灵能
-        if (spiritEnergy < scanSpiritCost)
+        if (gameState.spiritEnergy < scanSpiritCost)
         {
             Debug.LogWarning("灵能不足，无法扫描鉴定");
             GameEvents.SafeInvoke(GameEvents.OnToastRequested, "灵能不足，无法扫描鉴定！", "warning", 2f);
@@ -385,9 +390,9 @@ public class PawnDeskManager : MonoBehaviour
         if (isCounterCustomer) OnClientItemPlacementChanged?.Invoke();
 
         // 扣除扫描消耗的灵能
-        spiritEnergy = Mathf.Max(0f, spiritEnergy - scanSpiritCost);
+        gameState.spiritEnergy = Mathf.Max(0f, gameState.spiritEnergy - scanSpiritCost);
         OnSpiritEnergyChanged?.Invoke();
-        GameEvents.SafeInvoke(GameEvents.OnToastRequested, $"灵能剩余: {spiritEnergy:F0}", "info", 1.5f);
+        GameEvents.SafeInvoke(GameEvents.OnToastRequested, $"灵能剩余: {gameState.spiritEnergy:F0}", "info", 1.5f);
 
         Debug.Log($"扫描完成: {selectedItem.itemName}");
         if (lastReport.HasIssue)
@@ -479,7 +484,7 @@ public class PawnDeskManager : MonoBehaviour
         }
 
         float total = items.Sum(it => it.appraisedOffer);
-        if (shopFunds < total) return $"资金不足，收购需 {total:F0} 信用点。";
+        if (gameState.shopFunds < total) return $"资金不足，收购需 {total:F0} 信用点。";
         if (counterInventory == null) return "货架已满，无法收购。";
         if (counterInventory.FreeSlotCount < items.Count)
             return "货架空间不足，无法一次性收购全部。";
@@ -494,8 +499,8 @@ public class PawnDeskManager : MonoBehaviour
             it.counterSlot = -1;
         }
 
-        shopFunds -= total;
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, -total, "收购");
+        gameState.shopFunds -= total;
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, gameState.shopFunds, -total, "收购");
         GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "buy_success", 0.8f);
 
         selectedItem = null;
@@ -528,8 +533,8 @@ public class PawnDeskManager : MonoBehaviour
             it.counterSlot = -1;
         }
 
-        shopFunds += total;
-        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, shopFunds, total, "售出");
+        gameState.shopFunds += total;
+        GameEvents.SafeInvoke(GameEvents.OnFundsChanged, gameState.shopFunds, total, "售出");
         GameEvents.SafeInvoke(GameEvents.OnPlaySFX, "sell_success", 0.8f);
 
         selectedItem = null;
@@ -591,10 +596,10 @@ public class PawnDeskManager : MonoBehaviour
     public int GetClientCounterCount()
         => GetClientCounterItems().Count;
 
-    public float GetShopFunds() => shopFunds;
+    public float GetShopFunds() => gameState.shopFunds;
     public int GetCurrentDay() => gameState.currentDay;
     public float GetReputation() => gameState.reputation;
     public float GetWantedLevel() => gameState.wantedLevel;
-    public float GetSpiritEnergy() => spiritEnergy;
-    public float GetMaxSpiritEnergy() => maxSpiritEnergy;
+    public float GetSpiritEnergy() => gameState.spiritEnergy;
+    public float GetMaxSpiritEnergy() => gameState.maxSpiritEnergy;
 }
