@@ -101,7 +101,12 @@ public class PawnDeskManager : MonoBehaviour
         dayScheduler.StartDay(gameState.currentDay);
 
         isProcessingDay = true;
-        gameState.spiritEnergy = gameState.maxSpiritEnergy;   // 每天开始时满；切换场景不重置
+        // 仅真正进入新的一天时重置灵能；同一天内切场景/重进场景不重置
+        if (gameState.currentDay != gameState.spiritResetDay)
+        {
+            gameState.spiritEnergy = gameState.maxSpiritEnergy;
+            gameState.spiritResetDay = gameState.currentDay;
+        }
 
         OnDayStarted?.Invoke();
         OnSpiritEnergyChanged?.Invoke();
@@ -148,7 +153,7 @@ public class PawnDeskManager : MonoBehaviour
     public void EndDay()
     {
         isProcessingDay = false;
-        gameState.spiritEnergy = gameState.maxSpiritEnergy;
+        // 灵能不在日末重置，仅在真正日更（StartNewDay 检测跨天）时重置
 
         OnSpiritEnergyChanged?.Invoke();
         GameEvents.SafeInvoke(GameEvents.OnDayChanged, gameState.currentDay);

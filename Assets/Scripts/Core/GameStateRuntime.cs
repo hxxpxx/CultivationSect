@@ -19,6 +19,7 @@ public class GameStateRuntime
     public float maxSpiritEnergy = 100f; // 灵能上限
     public float spiritEnergy;           // 当前灵能（只在每天开始时满，切场景不清零）
     public bool fundsInitialized;        // 资金/灵能是否已初始化（防止重复覆盖）
+    public int spiritResetDay = -1;      // 灵能已重置的天数；仅真正跨天(日更)时才重置灵能
 
     public class AITimelineState
     {
